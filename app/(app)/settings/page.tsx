@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Copy, Check, Bell, BellOff, Calendar, ExternalLink,
-  Download, Sheet, Info, Link2, Sun, Moon, Monitor, CalendarCheck, Unplug, Pencil, ChevronDown,
+  Download, Sheet, Info, Link2, Sun, Moon, Monitor, CalendarCheck, Unplug, Pencil, ChevronDown, Apple,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
@@ -72,7 +72,8 @@ export default function SettingsPage() {
       setGcalConnected(true)
       window.history.replaceState({}, '', '/settings')
     } else if (params.get('gcal') === 'error') {
-      toast.error('Could not connect Google Calendar')
+      const reason = params.get('reason')
+      toast.error(reason ? `Google Calendar: ${reason}` : 'Could not connect Google Calendar', { duration: 8000 })
       window.history.replaceState({}, '', '/settings')
     }
   }, [userId])
@@ -141,7 +142,10 @@ export default function SettingsPage() {
 
   function subscribeCalendar() { window.location.href = webcalUrl }
   function addToGoogle() {
-    window.open(`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(httpsFeedUrl)}`, '_blank')
+    // Reliable path: copy the feed URL and open Google Calendar's "add by URL" page.
+    navigator.clipboard.writeText(httpsFeedUrl).catch(() => {})
+    toast.success('Feed URL copied — paste it under "From URL"', { duration: 6000 })
+    window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank')
   }
   function downloadICS() { window.open(`/api/calendar?userId=${userId}`, '_blank') }
   function connectGoogle() { window.location.href = `/api/calendar/google/connect?userId=${userId}` }
@@ -234,22 +238,22 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* Calendar */}
-        <Section title="Calendar">
+        {/* Calendar — subscription feed (auto-updating) */}
+        <Section title="Calendar (subscribe)">
           <p className="text-xs text-muted-foreground mb-2">
-            <b className="text-foreground">Subscribe</b> once and your calendar keeps itself updated. <b className="text-foreground">Download</b> is a one-time snapshot.
+            Subscribe once and your calendar keeps itself updated. <b className="text-foreground">Android:</b> use “Connect Google Calendar” below — the webcal button is iPhone-only.
           </p>
           <div className="space-y-2">
             <Button onClick={subscribeCalendar} className="w-full justify-start gap-3 h-12">
-              <Calendar size={18} />
-              <div className="text-left"><p className="text-sm font-medium">Subscribe (auto-updating)</p>
-                <p className="text-xs opacity-80">Opens your default calendar app</p></div>
+              <Apple size={18} />
+              <div className="text-left"><p className="text-sm font-medium">Subscribe — iPhone / Apple Calendar</p>
+                <p className="text-xs opacity-80">Opens Apple Calendar (iPhone/Mac only)</p></div>
               <ExternalLink size={14} className="ml-auto opacity-60" />
             </Button>
             <Button onClick={addToGoogle} variant="outline" className="w-full justify-start gap-3 h-12">
               <Calendar size={18} className="text-indigo-500" />
-              <div className="text-left"><p className="text-sm font-medium">Add to Google Calendar</p>
-                <p className="text-xs text-muted-foreground">Subscribe via Google web</p></div>
+              <div className="text-left"><p className="text-sm font-medium">Add to Google Calendar (by URL)</p>
+                <p className="text-xs text-muted-foreground">Copies the feed URL → paste under “From URL”</p></div>
             </Button>
             <Button onClick={downloadICS} variant="outline" className="w-full justify-start gap-3 h-12">
               <Download size={18} className="text-muted-foreground" />
@@ -263,22 +267,22 @@ export default function SettingsPage() {
             <CopyField value={httpsFeedUrl} copied={copied === 'feed'} onCopy={() => copy(httpsFeedUrl, 'feed', 'Feed URL copied')} />
             <button onClick={() => setShowManual((s) => !s)} className="mt-2 flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
               <ChevronDown size={13} className={cn('transition-transform', showManual && 'rotate-180')} />
-              Add manually in Google Calendar (any device)
+              How to add by URL in Google Calendar
             </button>
             {showManual && (
               <ol className="mt-2 text-xs text-muted-foreground list-decimal pl-5 space-y-1">
-                <li>Open Google Calendar → <b>Other calendars</b> → <b>From URL</b>.</li>
-                <li>Paste the feed URL above and click <b>Add calendar</b>.</li>
-                <li>Google refreshes subscribed feeds every few hours.</li>
+                <li>Open Google Calendar (web) → <b>Other calendars</b> (＋) → <b>From URL</b>.</li>
+                <li>Paste the feed URL above → <b>Add calendar</b>.</li>
+                <li>Google refreshes subscribed feeds every few hours (not instant).</li>
               </ol>
             )}
           </div>
         </Section>
 
         {/* Google Calendar sync (API write) */}
-        <Section title="Google Calendar sync">
+        <Section title="Google Calendar sync (Android)">
           <p className="text-xs text-muted-foreground mb-2">
-            Connect your Google account to auto-sync your schedule straight into Google Calendar — updates within minutes of a timetable change. Best on Android.
+            <b className="text-foreground">Recommended on Android.</b> Connect your Google account and your schedule is written straight into Google Calendar — updates within minutes of a timetable change. Use your college (@iimk) account.
           </p>
           {gcalConnected ? (
             <div className="flex items-center gap-3 rounded-xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 p-4">

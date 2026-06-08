@@ -29,7 +29,7 @@ export function BottomNav() {
   const { unreadCount } = useSession()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-b">
+    <nav className="shrink-0 z-50 bg-card border-t border-border safe-b">
       <div className="flex items-center justify-around max-w-lg mx-auto">
         {MOBILE_NAV.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || pathname.startsWith(href + '/')

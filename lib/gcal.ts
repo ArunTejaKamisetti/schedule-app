@@ -88,6 +88,10 @@ export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
   const calendar = google.calendar({ version: 'v3', auth: auth.client })
   const calendarId = auth.calendarId
 
+  // Probe — throws loudly if the Calendar API is disabled or the token/scope is bad,
+  // so the connect flow can show the real reason instead of silently doing nothing.
+  await calendar.events.list({ calendarId, maxResults: 1 })
+
   const [enrolledRes, commonRes, mapRes] = await Promise.all([
     supabase.from('user_courses').select('courses(*)').eq('user_id', userId),
     supabase.from('courses').select('*').eq('is_common', true),

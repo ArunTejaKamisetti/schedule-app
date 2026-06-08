@@ -15,10 +15,6 @@ function timeMin(t: string | null): number {
   const [h, m] = t.split(':').map(Number)
   return h * 60 + (m || 0)
 }
-function overlaps(a: Course, b: Course): boolean {
-  const as = timeMin(a.start_time), ae = timeMin(a.end_time), bs = timeMin(b.start_time), be = timeMin(b.end_time)
-  return as < be && bs < ae
-}
 
 function CompareContent() {
   const { userId } = useSession()
@@ -66,10 +62,11 @@ function CompareContent() {
     () => theirs.filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
     [theirs, selectedDate]
   )
-  const clashIds = useMemo(() => {
-    const s = new Set<string>()
-    for (const a of myDay) for (const b of theirDay) if (overlaps(a, b)) { s.add(a.id); s.add(b.id) }
-    return s
+  // Shared time axis (union of both people's slots), so rows line up by time.
+  const slots = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of [...myDay, ...theirDay]) if (c.start_time) set.add(c.start_time)
+    return [...set].sort((a, b) => timeMin(a) - timeMin(b))
   }, [myDay, theirDay])
 
   if (loading) {
@@ -88,7 +85,7 @@ function CompareContent() {
   return (
     <div className="flex flex-col h-full">
       {/* Date strip */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border shrink-0">
         {dates.map((iso) => {
           const active = iso === selectedDate
           const d = parseISO(iso)
@@ -103,49 +100,57 @@ function CompareContent() {
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {clashIds.size > 0 && (
-          <p className="text-xs text-center text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 py-1.5">
-            ⚠ {clashIds.size / 2 | 0} time clash{clashIds.size > 2 ? 'es' : ''} on this day
-          </p>
+      {/* Legend */}
+      <div className="flex justify-center gap-3 text-[10px] text-muted-foreground py-1.5 border-b border-border shrink-0">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-green-400 inline-block" /> Same class</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" /> Clash</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-muted-foreground/40 inline-block" /> One only</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3">
+        {slots.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-10">No classes on this day for either of you.</p>
+        ) : (
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: '46px 1fr 1fr' }}>
+            <div />
+            <div className="text-xs font-bold text-foreground text-center pb-1 truncate">You</div>
+            <div className="text-xs font-bold text-foreground text-center pb-1 truncate">{friendName}</div>
+            {slots.map((slot) => {
+              const myC = myDay.find((c) => c.start_time === slot)
+              const frC = theirDay.find((c) => c.start_time === slot)
+              const both = !!myC && !!frC
+              const same = both && myC!.course_code === frC!.course_code
+              const state: CellState = same ? 'same' : both ? 'clash' : 'one'
+              return (
+                <div key={slot} className="contents">
+                  <div className="text-[10px] font-mono text-muted-foreground text-right pr-1 pt-2 leading-tight">{slot}</div>
+                  <Cell course={myC} state={state} />
+                  <Cell course={frC} state={state} />
+                </div>
+              )
+            })}
+          </div>
         )}
-        <div className="grid grid-cols-2 gap-2 p-3">
-          <ColumnHeader label="You" />
-          <ColumnHeader label={friendName} />
-          <Column list={myDay} clashIds={clashIds} side="me" />
-          <Column list={theirDay} clashIds={clashIds} side="friend" />
-        </div>
       </div>
     </div>
   )
 }
 
-function ColumnHeader({ label }: { label: string }) {
-  return <div className="text-xs font-bold text-foreground text-center pb-1 truncate">{label}</div>
-}
+type CellState = 'same' | 'clash' | 'one'
 
-function Column({ list, clashIds, side }: { list: Course[]; clashIds: Set<string>; side: 'me' | 'friend' }) {
-  if (list.length === 0) {
-    return <div className="text-[11px] text-muted-foreground text-center py-6">— free —</div>
-  }
+function Cell({ course, state }: { course?: Course; state: CellState }) {
+  if (!course) return <div className="rounded-lg border border-dashed border-border min-h-[2.5rem] flex items-center justify-center text-[11px] text-muted-foreground">—</div>
   return (
-    <div className="space-y-2">
-      {list.map((c) => {
-        const clash = clashIds.has(c.id)
-        return (
-          <div key={c.id} className={cn(
-            'rounded-lg border p-2',
-            clash ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
-              : side === 'me' ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:border-indigo-800'
-              : 'bg-card border-border'
-          )}>
-            <p className="text-[10px] font-mono font-bold text-muted-foreground">{c.start_time}–{c.end_time}</p>
-            <p className={cn('text-xs font-semibold truncate', clash ? 'text-red-600' : 'text-foreground')}>{c.course_code}</p>
-            <p className="text-[11px] text-muted-foreground truncate">{c.course_name}</p>
-            {c.room && <p className="text-[10px] text-muted-foreground flex items-center gap-0.5"><MapPin size={8} />Class {c.room}</p>}
-          </div>
-        )
-      })}
+    <div className={cn('rounded-lg border p-2 min-h-[2.5rem]',
+      state === 'same' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
+        : state === 'clash' ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
+        : 'bg-card border-border')}>
+      <p className={cn('text-xs font-semibold truncate',
+        state === 'same' ? 'text-green-700 dark:text-green-400' : state === 'clash' ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
+        {course.course_code}
+      </p>
+      <p className="text-[11px] text-muted-foreground truncate">{course.course_name}</p>
+      {course.room && <p className="text-[10px] text-muted-foreground flex items-center gap-0.5"><MapPin size={8} />Class {course.room}</p>}
     </div>
   )
 }

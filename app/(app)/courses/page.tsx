@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useTransition } from 'react'
-import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X } from 'lucide-react'
+import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -31,6 +31,7 @@ export default function CoursesPage() {
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const [, startTransition] = useTransition()
 
   useEffect(() => {
@@ -144,34 +145,47 @@ export default function CoursesPage() {
     [courseGroups, selectedCodes]
   )
 
+  // Once a user has picks, show them as a static list with an Edit button.
+  const showPicker = editing || (!loading && selectedGroups.length === 0)
+
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <BookOpen className="text-indigo-600 dark:text-indigo-400" size={22} />
-            <h1 className="text-xl font-bold text-foreground">Course Picker</h1>
+            <h1 className="text-xl font-bold text-foreground">{showPicker ? 'Pick Courses' : 'My Courses'}</h1>
           </div>
-          {selectedGroups.length > 0 && (
-            <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">
-              {selectedGroups.length} selected
-            </span>
+          {showPicker ? (
+            selectedGroups.length > 0 && editing ? (
+              <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
+            ) : (
+              <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
+            )
+          ) : (
+            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
+              <Pencil size={14} /> Edit
+            </button>
           )}
         </div>
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, code, or faculty…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-muted border-border text-sm"
-          />
-        </div>
+        {showPicker && (
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, code, or faculty…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 bg-muted border-border text-sm"
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+        ) : !showPicker ? (
+          <StaticList groups={selectedGroups} />
         ) : byArea.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <BookOpen size={40} strokeWidth={1} />
@@ -213,11 +227,11 @@ export default function CoursesPage() {
             )
           })
         )}
-        {selectedGroups.length > 0 && <div className="h-24" />}
+        {showPicker && selectedGroups.length > 0 && <div className="h-24" />}
       </div>
 
-      {/* Overview bar — floats just above the bottom nav */}
-      {selectedGroups.length > 0 && (
+      {/* Overview bar — only while editing */}
+      {showPicker && selectedGroups.length > 0 && (
         <div className="fixed inset-x-0 bottom-[72px] z-40 px-3">
           <div className="max-w-lg mx-auto bg-card/95 backdrop-blur border border-border rounded-2xl px-4 pt-2.5 pb-3 shadow-lg">
             <div className="flex items-center justify-between mb-2">
@@ -305,6 +319,38 @@ function CourseCard({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Read-only summary of the user's picked courses (shown until they tap Edit).
+function StaticList({ groups }: { groups: CourseGroup[] }) {
+  const ordered = [...groups].sort((a, b) =>
+    (AREA_ORDER.indexOf(a.area || 'Other') - AREA_ORDER.indexOf(b.area || 'Other')) || a.code.localeCompare(b.code)
+  )
+  return (
+    <div className="space-y-2.5">
+      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} picked · tap <b className="text-foreground">Edit</b> to change</p>
+      {ordered.map((g) => (
+        <div key={g.code} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center shrink-0">
+            <GraduationCap size={18} className="text-indigo-600 dark:text-indigo-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
+              {g.area && <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{g.area}</span>}
+              {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
+            </div>
+            <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+              {g.room && <span className="flex items-center gap-1"><MapPin size={10} />Class {g.room}</span>}
+              {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
+            </div>
+          </div>
+        </div>
+      ))}
+      <a href="/schedule" className="block text-center text-sm font-semibold text-indigo-600 dark:text-indigo-400 py-2">View full schedule →</a>
     </div>
   )
 }
