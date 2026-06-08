@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { getOrCreateSessionId, setSessionCode, getSessionCode } from '@/lib/session'
+import { getOrCreateSessionId, setSessionCode, applyRecoveryTokenFromUrl } from '@/lib/session'
 import type { User } from '@/lib/types'
 
 interface SessionContextValue {
@@ -40,6 +40,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // Apply a recovery link (?t=<userId>) before resolving the session id.
+    applyRecoveryTokenFromUrl()
     const id = getOrCreateSessionId()
     setUserId(id)
 

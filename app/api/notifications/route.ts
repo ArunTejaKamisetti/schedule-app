@@ -33,3 +33,21 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({ ok: true })
 }
+
+// DELETE /api/notifications?userId=xxx&id=yyy  (or &all=1 to clear all)
+export async function DELETE(req: NextRequest) {
+  const userId = req.nextUrl.searchParams.get('userId')
+  const id = req.nextUrl.searchParams.get('id')
+  const all = req.nextUrl.searchParams.get('all')
+  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+
+  const supabase = createServiceClient()
+  let q = supabase.from('notifications').delete().eq('user_id', userId)
+  if (!all) {
+    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    q = q.eq('id', id)
+  }
+  const { error } = await q
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}

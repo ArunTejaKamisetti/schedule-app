@@ -3,8 +3,16 @@ import { google } from 'googleapis'
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
+  const errorParam = req.nextUrl.searchParams.get('error')
+  const errorDesc = req.nextUrl.searchParams.get('error_description')
   if (!code) {
-    return NextResponse.json({ error: 'No code provided' }, { status: 400 })
+    const html = `<!DOCTYPE html><html><body style="font-family:monospace;background:#0f0f0f;color:#f00;padding:40px">
+      <h2>❌ OAuth Error</h2>
+      <p><b>Google error:</b> ${errorParam ?? 'none'}</p>
+      <p><b>Description:</b> ${errorDesc ?? 'none'}</p>
+      <p><b>Full callback URL:</b><br><code style="word-break:break-all;color:#ff0">${req.url}</code></p>
+    </body></html>`
+    return new NextResponse(html, { status: 400, headers: { 'Content-Type': 'text/html' } })
   }
 
   const oauth2Client = new google.auth.OAuth2(

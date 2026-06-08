@@ -1,11 +1,5 @@
-import type { Course, CourseChange, RawSheetData } from './types'
-import { parseSheetRows, type ParsedCourse } from './sheets'
-
-type CourseKey = string
-
-function makeKey(c: { course_code: string; sheet_tab: string; day_of_week: string; start_time: string }): CourseKey {
-  return `${c.sheet_tab}::${c.course_code}::${c.day_of_week}::${c.start_time}`
-}
+import type { CellFormat, Course, CourseChange, RawSheetData } from './types'
+import { classifyColor, getBaseAbbr, parseSheetRows, type ParsedCourse } from './sheets'
 
 function parsedToPartial(p: ParsedCourse): Partial<Course> {
   return {
@@ -13,31 +7,61 @@ function parsedToPartial(p: ParsedCourse): Partial<Course> {
     course_name: p.course_name,
     instructor: p.instructor || null,
     day_of_week: p.day_of_week || null,
+    session_date: p.session_date || null,
     start_time: p.start_time || null,
     end_time: p.end_time || null,
     room: p.room || null,
     credits: p.credits || null,
     sheet_tab: p.sheet_tab,
     sheet_row_index: p.sheet_row_index,
-    is_cancelled: false,
+    is_cancelled: p.is_cancelled ?? false,
+    is_common: p.is_common,
+    event_kind: p.event_kind,
   }
+}
+
+// ─── Cell colour → state (red = cancelled, green = added) ─────────────────────
+
+function getCellFormat(values: string[][], format: CellFormat[][] | undefined, rowIndex: number, code: string): CellFormat | null {
+  if (!format) return null
+  const row = values[rowIndex]
+  if (!row) return null
+  const col = row.findIndex((cell) => (cell || '').trim() === code)
+  if (col === -1) return null
+  return format[rowIndex]?.[col] ?? null
+}
+
+// Coordinators mark cells by colour: red (or strikethrough) = cancelled, green = added/new.
+function cellState(values: string[][], format: CellFormat[][] | undefined, rowIndex: number, code: string): 'red' | 'green' | 'normal' {
+  const fmt = getCellFormat(values, format, rowIndex, code)
+  if (!fmt) return 'normal'
+  if (fmt.strikethrough) return 'red'
+  return classifyColor(fmt.bgColor)
 }
 
 export interface DiffResult {
   added: ParsedCourse[]
   removed: ParsedCourse[]
   changes: CourseChange[]
-  upserts: ParsedCourse[]  // added + modified combined for DB upsert
+  upserts: ParsedCourse[]
 }
 
-export function diffSheetData(
-  previousSnapshot: RawSheetData | null,
-  newData: RawSheetData
-): DiffResult {
-  const newCourses1 = parseSheetRows(newData.sheet1, 'Sheet1')
-  const newCourses2 = parseSheetRows(newData.sheet2, 'Sheet2')
-  const newAll = [...newCourses1, ...newCourses2]
+// A physical slot in the timetable: a specific date + time + division (column).
+// One slot holds at most one course, so comparing slots old↔new is how we tell
+// added / removed / moved / in-cell-edit apart.
+function slotKey(c: { session_date: string; start_time: string; sheet_tab: string }): string {
+  return `${c.session_date}::${c.start_time}::${c.sheet_tab}`
+}
 
+export function diffSheetData(previousSnapshot: RawSheetData | null, newData: RawSheetData): DiffResult {
+  const newState = (c: ParsedCourse) => cellState(newData.sheet1, newData.sheet1_format, c.sheet_row_index, c.course_code)
+
+  const newAll = parseSheetRows(newData.sheet1, 'Sheet1')
+  for (const c of newAll) {
+    c.is_cancelled = newState(c) === 'red'
+  }
+
+  // First sync / no prior snapshot: everything is baseline, no change highlights.
   if (!previousSnapshot) {
     return {
       added: newAll,
@@ -47,70 +71,101 @@ export function diffSheetData(
     }
   }
 
-  const oldCourses1 = parseSheetRows(previousSnapshot.sheet1, 'Sheet1')
-  const oldCourses2 = parseSheetRows(previousSnapshot.sheet2, 'Sheet2')
-  const oldAll = [...oldCourses1, ...oldCourses2]
+  const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1, previousSnapshot.sheet1_format, c.sheet_row_index, c.course_code)
 
-  const oldMap = new Map<CourseKey, ParsedCourse>()
-  for (const c of oldAll) oldMap.set(makeKey(c), c)
+  const oldAll = parseSheetRows(previousSnapshot.sheet1, 'Sheet1')
+  for (const c of oldAll) {
+    c.is_cancelled = oldState(c) === 'red'
+  }
 
-  const newMap = new Map<CourseKey, ParsedCourse>()
-  for (const c of newAll) newMap.set(makeKey(c), c)
+  const oldSlots = new Map(oldAll.map((c) => [slotKey(c), c]))
+  const newSlots = new Map(newAll.map((c) => [slotKey(c), c]))
 
+  const changes: CourseChange[] = []
   const added: ParsedCourse[] = []
   const removed: ParsedCourse[] = []
-  const changes: CourseChange[] = []
-  const upserts: ParsedCourse[] = []
+  const candAdd: ParsedCourse[] = []   // appeared in a slot (new or replacing different content)
+  const candRemove: ParsedCourse[] = [] // vanished from a slot (or replaced)
 
-  // Find added / modified
-  for (const [key, newCourse] of newMap) {
-    const old = oldMap.get(key)
-    if (!old) {
-      added.push(newCourse)
-      changes.push({ type: 'added', new: parsedToPartial(newCourse), course_code: newCourse.course_code, course_name: newCourse.course_name })
-      upserts.push(newCourse)
-    } else {
-      const fieldChanges = detectFieldChanges(old, newCourse)
-      if (fieldChanges.length > 0) {
-        upserts.push(newCourse)
-        for (const fc of fieldChanges) {
-          changes.push({ type: fc, old: parsedToPartial(old), new: parsedToPartial(newCourse), course_code: newCourse.course_code, course_name: newCourse.course_name })
-        }
+  function tag(c: ParsedCourse, kind: string, note?: string) {
+    c.change_kind = kind
+    if (note) c.change_note = note
+  }
+
+  // Pass 1 — compare each slot's content old↔new.
+  for (const [k, nc] of newSlots) {
+    const oc = oldSlots.get(k)
+    if (!oc) { candAdd.push(nc); continue }
+
+    if (oc.course_code === nc.course_code) {
+      // Same course in the same slot — a colour change is the only signal here.
+      const os = oldState(oc)
+      const ns = newState(nc)
+      if (ns === os) { continue } // unchanged
+      if (ns === 'red') {
+        tag(nc, 'cancelled')
+        changes.push({ type: 'cancelled', old: parsedToPartial(oc), new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name })
+      } else if (os === 'red') {
+        tag(nc, 'added', 'Class reinstated')
+        changes.push({ type: 'added', old: parsedToPartial(oc), new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name })
+      } else if (ns === 'green') {
+        // Cell turned green → coordinator marked this class as added/new.
+        tag(nc, 'added', 'Marked as added')
+        changes.push({ type: 'added', new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name })
       }
+      // green → normal (highlight removed): no notification.
+      continue
+    }
+
+    // Different content in the same slot.
+    if (getBaseAbbr(oc.course_code) === getBaseAbbr(nc.course_code)) {
+      // Same course, edited in place (e.g. "GT" → "GT (E1)").
+      const note = `Updated: ${oc.course_code} → ${nc.course_code}`
+      tag(nc, 'updated', note)
+      changes.push({ type: 'schedule_update', old: parsedToPartial(oc), new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name, note })
+    } else {
+      // A genuinely different course took this slot — treat as remove + add (move candidates).
+      candRemove.push(oc)
+      candAdd.push(nc)
+    }
+  }
+  for (const [k, oc] of oldSlots) if (!newSlots.has(k)) candRemove.push(oc)
+
+  // Pass 2 — match removals with additions of the SAME course on the SAME date → a move.
+  const removeLeft = [...candRemove]
+  for (const add of candAdd) {
+    const idx = removeLeft.findIndex((rm) => rm.course_code === add.course_code && rm.session_date === add.session_date)
+    if (idx >= 0) {
+      const rm = removeLeft[idx]
+      removeLeft.splice(idx, 1)
+      const timeChanged = rm.start_time !== add.start_time
+      const roomChanged = rm.sheet_tab !== add.sheet_tab
+      const fromLbl = `${rm.start_time} ${rm.room || ''}`.trim()
+      const toLbl = `${add.start_time} ${add.room || ''}`.trim()
+      const note = `Moved from ${fromLbl} → ${toLbl}`
+      tag(add, 'moved', note)
+      changes.push({
+        type: timeChanged ? 'rescheduled' : 'room_change',
+        old: parsedToPartial(rm),
+        new: parsedToPartial(add),
+        course_code: add.course_code,
+        course_name: add.course_name,
+        note,
+      })
+      // suppress unused-var lint intent
+      void roomChanged
+    } else {
+      tag(add, 'added')
+      added.push(add)
+      changes.push({ type: 'added', new: parsedToPartial(add), course_code: add.course_code, course_name: add.course_name })
     }
   }
 
-  // Find removed
-  for (const [key, oldCourse] of oldMap) {
-    if (!newMap.has(key)) {
-      removed.push(oldCourse)
-      changes.push({ type: 'removed', old: parsedToPartial(oldCourse), course_code: oldCourse.course_code, course_name: oldCourse.course_name })
-    }
+  // Unmatched removals = genuinely removed sessions.
+  for (const rm of removeLeft) {
+    removed.push(rm)
+    changes.push({ type: 'removed', old: parsedToPartial(rm), course_code: rm.course_code, course_name: rm.course_name })
   }
 
-  return { added, removed, changes, upserts }
-}
-
-function detectFieldChanges(old: ParsedCourse, next: ParsedCourse): CourseChange['type'][] {
-  const types: CourseChange['type'][] = []
-
-  // Room change — track character-level changes
-  if (normalizeField(old.room) !== normalizeField(next.room)) {
-    types.push('room_change')
-  }
-
-  // Time change = rescheduled
-  const timeChanged =
-    normalizeField(old.start_time) !== normalizeField(next.start_time) ||
-    normalizeField(old.end_time) !== normalizeField(next.end_time) ||
-    normalizeField(old.day_of_week) !== normalizeField(next.day_of_week)
-  if (timeChanged) {
-    types.push('rescheduled')
-  }
-
-  return types
-}
-
-function normalizeField(val: string | undefined | null): string {
-  return (val ?? '').toLowerCase().trim().replace(/\s+/g, ' ')
+  return { added, removed, changes, upserts: newAll }
 }

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
+import { ThemeProvider } from '@/components/theme-provider'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
@@ -22,10 +23,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} h-full`}>
-      <body className="h-full bg-gray-50 font-sans antialiased">
-        {children}
-        <Toaster position="top-center" richColors />
+    <html lang="en" className={`${geist.variable} h-full`} suppressHydrationWarning>
+      <body className="h-full bg-background text-foreground font-sans antialiased">
+        <ThemeProvider>
+          {children}
+          <Toaster position="top-center" richColors />
+        </ThemeProvider>
       </body>
     </html>
   )

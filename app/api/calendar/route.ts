@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import ical from 'ical-generator'
+import ical, { ICalEventStatus } from 'ical-generator'
 import type { Course } from '@/lib/types'
 
-const DAY_MAP: Record<string, number> = {
-  SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6,
-}
-
-function nextOccurrence(dayName: string, startTime: string): Date {
-  const targetDay = DAY_MAP[dayName?.toUpperCase()] ?? 1
-  const now = new Date()
-  const [h, m] = startTime.split(':').map(Number)
-  const date = new Date(now)
-  date.setHours(h, m, 0, 0)
-  const diff = (targetDay - now.getDay() + 7) % 7
-  date.setDate(date.getDate() + (diff === 0 && date < now ? 7 : diff))
-  return date
+// Build the absolute UTC instant for an IST (Asia/Kolkata, UTC+5:30) wall-clock time.
+function istInstant(dateISO: string, timeHHMM: string): Date | null {
+  if (!dateISO || !timeHHMM) return null
+  const [y, m, d] = dateISO.split('-').map(Number)
+  const [hh, mm] = timeHHMM.split(':').map(Number)
+  if (!y || !m || !d) return null
+  return new Date(Date.UTC(y, m - 1, d, hh || 0, mm || 0) - 330 * 60000)
 }
 
 export async function GET(req: NextRequest) {
@@ -23,42 +17,50 @@ export async function GET(req: NextRequest) {
   if (!userId) return new NextResponse('Missing userId', { status: 400 })
 
   const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('user_courses')
-    .select('courses(*)')
-    .eq('user_id', userId)
 
-  if (error) return new NextResponse(error.message, { status: 500 })
+  const [enrolledRes, commonRes] = await Promise.all([
+    supabase.from('user_courses').select('courses(*)').eq('user_id', userId),
+    supabase.from('courses').select('*').eq('is_common', true),
+  ])
 
-  const courses = (data ?? []).map((r) => (r as any).courses as Course).filter(Boolean)
+  if (enrolledRes.error) return new NextResponse(enrolledRes.error.message, { status: 500 })
 
+  const enrolled = (enrolledRes.data ?? []).map((r: { courses: Course }) => r.courses).filter(Boolean)
+  const common = (commonRes.data as Course[] | null) ?? []
+
+  // Union selected courses + common events (exams etc.), de-duplicated by id.
+  const byId = new Map<string, Course>()
+  for (const c of [...enrolled, ...common]) if (c) byId.set(c.id, c)
+  const courses = [...byId.values()]
+
+  // No `timezone` here on purpose: istInstant() already returns the correct absolute
+  // UTC instant, so ical-generator emits DTSTART in UTC (…Z) and the phone converts to
+  // local time. Setting a timezone without a VTIMEZONE generator mislabels the UTC value
+  // and shifts every event by 5:30h.
   const cal = ical({
     name: 'My College Schedule',
     prodId: '//CollegeSchedule//App//EN',
-    timezone: 'Asia/Kolkata',
   })
 
-  // Semester end — use Dec 31 of current year
-  const semesterEnd = new Date(new Date().getFullYear(), 11, 31)
-
   for (const course of courses) {
-    if (!course.day_of_week || !course.start_time || !course.end_time) continue
+    const start = istInstant(course.session_date ?? '', course.start_time ?? '')
+    if (!start) continue
+    const end = istInstant(course.session_date ?? '', course.end_time ?? '') ?? new Date(start.getTime() + 75 * 60000)
 
-    const start = nextOccurrence(course.day_of_week, course.start_time)
-    const end = new Date(start)
-    const [eh, em] = course.end_time.split(':').map(Number)
-    end.setHours(eh, em, 0, 0)
-
+    const cancelled = course.is_cancelled
     cal.createEvent({
+      // Stable per-session UID so subscribed calendars update in place instead of duplicating.
+      id: `${course.id}@schedule-app`,
       start,
       end,
-      summary: `${course.course_code} — ${course.course_name}`,
-      description: `Instructor: ${course.instructor ?? 'TBD'}\nRoom: ${course.room ?? 'TBD'}`,
+      summary: course.is_common
+        ? `📝 ${course.course_name}`
+        : `${cancelled ? 'CANCELLED: ' : ''}${course.course_code} — ${course.course_name}`,
+      description: course.is_common
+        ? 'Common event for all sections.'
+        : `Instructor: ${course.instructor ?? 'TBD'}\nRoom: ${course.room ?? 'TBD'}`,
       location: course.room ?? undefined,
-      repeating: {
-        freq: 'WEEKLY',
-        until: semesterEnd,
-      },
+      status: cancelled ? ICalEventStatus.CANCELLED : ICalEventStatus.CONFIRMED,
     })
   }
 

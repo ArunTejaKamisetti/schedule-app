@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BookOpen, CalendarDays, Users, Bell, Settings } from 'lucide-react'
+import { BookOpen, CalendarDays, CalendarRange, Users, Bell, Settings } from 'lucide-react'
 import { useSession } from './session-provider'
 import { cn } from '@/lib/utils'
 
@@ -18,6 +18,7 @@ const NAV = [
 const MOBILE_NAV = [
   { href: '/courses', icon: BookOpen, label: 'Courses' },
   { href: '/today', icon: CalendarDays, label: 'Today' },
+  { href: '/schedule', icon: CalendarRange, label: 'Week' },
   { href: '/friends', icon: Users, label: 'Friends' },
   { href: '/notifications', icon: Bell, label: 'Alerts' },
   { href: '/settings', icon: Settings, label: 'Settings' },
@@ -28,7 +29,7 @@ export function BottomNav() {
   const { unreadCount } = useSession()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200 safe-b">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-b">
       <div className="flex items-center justify-around max-w-lg mx-auto">
         {MOBILE_NAV.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
@@ -38,8 +39,8 @@ export function BottomNav() {
               key={href}
               href={href}
               className={cn(
-                'flex flex-col items-center gap-0.5 px-3 py-2 text-xs font-medium transition-colors relative',
-                active ? 'text-indigo-600' : 'text-gray-500'
+                'flex flex-col items-center gap-0.5 px-2 py-2 text-[11px] font-medium transition-colors relative',
+                active ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground'
               )}
             >
               <span className="relative">

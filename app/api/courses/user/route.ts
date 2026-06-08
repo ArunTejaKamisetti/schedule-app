@@ -16,10 +16,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data)
 }
 
-// POST /api/courses/user  → add or remove a course
+// POST /api/courses/user  → add or remove a whole course (all its dated sessions)
+// Body: { userId, courseCode, action: 'add' | 'remove' }
 export async function POST(req: NextRequest) {
-  const { userId, courseId, action } = await req.json()
-  if (!userId || !courseId || !action) {
+  const { userId, courseCode, action } = await req.json()
+  if (!userId || !courseCode || !action) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
@@ -29,24 +30,15 @@ export async function POST(req: NextRequest) {
     // Ensure user exists
     const { data: user } = await supabase.from('users').select('id').eq('id', userId).single()
     if (!user) {
-      // Auto-create user
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
       let code = ''
       for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)]
       await supabase.from('users').insert({ id: userId, share_code: code })
     }
-
-    const { error } = await supabase.from('user_courses').upsert(
-      { user_id: userId, course_id: courseId },
-      { ignoreDuplicates: true }
-    )
+    const { error } = await supabase.rpc('pick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else if (action === 'remove') {
-    const { error } = await supabase
-      .from('user_courses')
-      .delete()
-      .eq('user_id', userId)
-      .eq('course_id', courseId)
+    const { error } = await supabase.rpc('unpick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

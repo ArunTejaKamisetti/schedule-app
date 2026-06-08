@@ -20,6 +20,26 @@ export function getSessionId(): string | null {
   return localStorage.getItem(SESSION_KEY)
 }
 
+export function setSessionId(id: string) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(SESSION_KEY, id)
+  }
+}
+
+// Recovery link support: ?t=<userId> restores identity on a new device.
+// Returns true if a token was applied (and strips it from the URL).
+export function applyRecoveryTokenFromUrl(): boolean {
+  if (typeof window === 'undefined') return false
+  const params = new URLSearchParams(window.location.search)
+  const token = params.get('t')
+  if (!token) return false
+  localStorage.setItem(SESSION_KEY, token)
+  params.delete('t')
+  const qs = params.toString()
+  window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  return true
+}
+
 export function setSessionCode(code: string) {
   if (typeof window !== 'undefined') {
     localStorage.setItem(SESSION_CODE_KEY, code)

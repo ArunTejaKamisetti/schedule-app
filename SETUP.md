@@ -106,3 +106,67 @@ A simple way: use https://favicon.io/favicon-generator/ — set background indig
 Send them: `https://YOUR_APP.vercel.app`
 
 No sign-in required. They open the app, pick their electives, and their share code appears in Settings → Share Code.
+
+---
+
+## 12. Apply the overhaul migration
+
+Run `supabase/migrations/003_overhaul.sql` in the Supabase SQL editor. It adds:
+- `courses.is_common` / `courses.event_kind` (common events like mid-terms shown to everyone)
+- `users.notify_cancelled / notify_rescheduled / notify_room / notify_daily_summary` (per-type notification toggles)
+- `user_calendar_tokens` + `calendar_event_map` (per-user Google Calendar write-sync)
+
+## 13. Instant sync on sheet changes (Apps Script onChange trigger)
+
+Colour changes (red = cancelled, green = added) don't fire `onEdit` — you need `onChange`.
+This makes any change (including cell colour/strikethrough) reach the app in seconds instead of waiting up to 15 minutes.
+
+1. In the schedule sheet: **Extensions → Apps Script**, paste:
+   ```javascript
+   function syncOnChange() {
+     UrlFetchApp.fetch('https://YOUR_APP.vercel.app/api/sync', {
+       method: 'post',
+       headers: { 'Authorization': 'Bearer YOUR_CRON_SECRET' },
+       muteHttpExceptions: true
+     });
+   }
+   ```
+2. **Triggers** (clock icon) → **Add Trigger** → function `syncOnChange`, event source **From spreadsheet**, event type **On change**.
+3. Authorize with the Google account that owns the sheet.
+
+> `onChange` fires for value AND formatting changes (colour, strikethrough, rows/cols). `onEdit` would miss the colour-based cancellations.
+
+## 14. Daily morning summary (optional cron)
+
+Add a second cron-job.org job for the "Daily morning summary" notification:
+- URL: `https://YOUR_APP.vercel.app/api/cron/daily-summary`
+- Method: POST, header `Authorization: Bearer YOUR_CRON_SECRET`
+- Schedule: once daily, ~07:00 IST (01:30 UTC)
+
+## 15. Google Calendar write-sync (the "Connect Google Calendar" button)
+
+The Calendar sync feature writes events straight into a user's Google Calendar.
+
+1. In Google Cloud Console → **Enable APIs** → enable **Google Calendar API**.
+2. Add the calendar callback to your OAuth client's Authorized redirect URIs:
+   ```
+   https://YOUR_APP.vercel.app/api/calendar/google/callback
+   ```
+3. Set `NEXT_PUBLIC_APP_URL=https://YOUR_APP.vercel.app` in your env (used to build the redirect).
+
+## 16. Publish the OAuth app to production (stops 7-day token expiry)
+
+**Critical for reliability.** In **Testing** publishing status, Google expires *every* refresh token after 7 days — including the Sheets sync token (`GOOGLE_REFRESH_TOKEN`), so the 15-min sync breaks weekly, and every user's Google Calendar connection drops weekly.
+
+Fix it once:
+1. Google Cloud Console → **APIs & Services → OAuth consent screen**.
+2. Under **Publishing status**, click **Publish app** → confirm. Status becomes **In production**.
+3. Refresh tokens are now long-lived (no 7-day expiry).
+
+> Unverified production apps with sensitive scopes (Sheets, Calendar) show a one-time "Google hasn't verified this app" screen (users click **Advanced → Continue**) and are capped at **100 connected users**. For wider rollout, submit for Google verification. The webcal/.ics subscription needs none of this.
+
+> **Reminder:** also add the calendar callback to **OAuth client → Authorized redirect URIs**:
+> ```
+> https://YOUR_APP.vercel.app/api/calendar/google/callback
+> ```
+> Without it, "Connect Google Calendar" errors out.

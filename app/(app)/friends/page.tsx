@@ -71,24 +71,24 @@ export default function FriendsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 pt-12 pb-4 shadow-sm">
+      <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-4 shadow-sm">
         <div className="flex items-center gap-2">
-          <Users className="text-indigo-600" size={22} />
-          <h1 className="text-xl font-bold text-gray-900">Friends</h1>
+          <Users className="text-indigo-600 dark:text-indigo-400" size={22} />
+          <h1 className="text-xl font-bold text-foreground">Friends</h1>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
         {/* Your code card */}
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-          <p className="text-xs font-medium text-indigo-600 mb-1">Your share code</p>
+        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 dark:bg-indigo-950/40 dark:border-indigo-900">
+          <p className="text-xs font-medium text-indigo-600 dark:text-indigo-300 mb-1">Your share code</p>
           <div className="flex items-center gap-2">
-            <span className="text-2xl font-mono font-bold tracking-widest text-indigo-900">
+            <span className="text-2xl font-mono font-bold tracking-widest text-indigo-900 dark:text-indigo-100">
               {shareCode || '——————'}
             </span>
             <button
               onClick={copyCode}
-              className="ml-auto p-2 rounded-lg bg-white border border-indigo-200 hover:bg-indigo-50 transition-colors"
+              className="ml-auto p-2 rounded-lg bg-card border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-900 transition-colors"
               title="Copy code"
             >
               {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-indigo-500" />}
@@ -98,8 +98,8 @@ export default function FriendsPage() {
         </div>
 
         {/* Add friend */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-700 mb-2">Add a friend</p>
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-sm font-semibold text-foreground mb-2">Add a friend</p>
           <div className="flex gap-2">
             <Input
               placeholder="Enter 8-character code…"
@@ -117,7 +117,7 @@ export default function FriendsPage() {
 
         {/* Friends list */}
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             {friends.length} Friend{friends.length !== 1 ? 's' : ''}
           </p>
 
@@ -153,34 +153,34 @@ function FriendRow({ friend, userId, onRemove }: { friend: User; userId: string;
   const initials = (friend.display_name ?? friend.share_code ?? '??').slice(0, 2).toUpperCase()
 
   return (
-    <div className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-3">
+    <div className="flex items-center gap-3 bg-card border border-border rounded-xl p-3">
       <Avatar className="w-10 h-10">
-        <AvatarFallback className="bg-indigo-100 text-indigo-700 text-sm font-semibold">
+        <AvatarFallback className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200 text-sm font-semibold">
           {initials}
         </AvatarFallback>
       </Avatar>
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-gray-900 truncate">
+        <p className="text-sm font-semibold text-foreground truncate">
           {friend.display_name ?? 'Anonymous'}
         </p>
-        <p className="text-xs font-mono text-gray-400">{friend.share_code}</p>
+        <p className="text-xs font-mono text-muted-foreground">{friend.share_code}</p>
       </div>
 
       <div className="flex items-center gap-1">
         <Link
           href={`/friends/compare?friendId=${friend.id}`}
-          className="p-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 transition-colors"
+          className="p-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 transition-colors"
           title="Compare schedules"
         >
-          <ArrowRight size={15} className="text-indigo-600" />
+          <ArrowRight size={15} className="text-indigo-600 dark:text-indigo-400" />
         </Link>
         <button
           onClick={onRemove}
-          className="p-2 rounded-lg bg-gray-50 hover:bg-red-50 transition-colors"
+          className="p-2 rounded-lg bg-muted hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
           title="Remove friend"
         >
-          <Trash2 size={14} className="text-gray-400 hover:text-red-500" />
+          <Trash2 size={14} className="text-muted-foreground hover:text-red-500" />
         </button>
       </div>
     </div>

@@ -5,8 +5,8 @@ export default async function AdminPreviewPage() {
   try {
     const { fetchBothSheetTabs, parseSheetRows } = await import('@/lib/sheets')
     const raw = await fetchBothSheetTabs()
-    const parsed1 = parseSheetRows(raw.sheet1, 'Sheet1')
-    const parsed2 = parseSheetRows(raw.sheet2, 'Sheet2')
+    const parsed1 = parseSheetRows(raw.sheet1, 'Term IV Schedule')
+    const parsed2 = parseSheetRows(raw.sheet2, 'Course Details')
     data = {
       fetched_at: raw.fetched_at,
       sheet1: { headers: raw.sheet1[0] ?? [], row_count: raw.sheet1.length - 1, sample: raw.sheet1.slice(0, 5), parsed_count: parsed1.length, parsed_sample: parsed1.slice(0, 5) },
@@ -37,7 +37,7 @@ export default async function AdminPreviewPage() {
             const t = (data as any)[tab]
             return (
               <div key={tab} style={{ marginBottom: 32 }}>
-                <h2 style={{ color: '#22c55e' }}>{tab === 'sheet1' ? 'Sheet1' : 'Sheet2'}</h2>
+                <h2 style={{ color: '#22c55e' }}>{tab === 'sheet1' ? 'Term IV Schedule' : 'Course Details'}</h2>
                 <p style={{ color: '#888', fontSize: 13 }}>{t.row_count} rows · {t.parsed_count} parsed</p>
                 <p><strong>Headers:</strong> {t.headers.join(' | ')}</p>
                 <br />

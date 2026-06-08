@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Bell, AlertTriangle, ArrowLeftRight, DoorOpen, PlusCircle, MinusCircle, CheckCheck } from 'lucide-react'
+import { Bell, AlertTriangle, ArrowLeftRight, DoorOpen, PlusCircle, MinusCircle, CheckCheck, Trash2, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
@@ -57,6 +57,14 @@ const TYPE_CONFIG: Record<Notification['type'], {
     badgeText: 'text-gray-600',
     label: 'REMOVED',
   },
+  schedule_update: {
+    icon: <Bell size={16} className="text-indigo-500" />,
+    bg: 'bg-indigo-50',
+    border: 'border-indigo-100',
+    badgeBg: 'bg-indigo-100',
+    badgeText: 'text-indigo-700',
+    label: 'UPDATED',
+  },
 }
 
 export default function NotificationsPage() {
@@ -95,27 +103,46 @@ export default function NotificationsPage() {
     refreshUnreadCount()
   }
 
+  async function deleteNotif(id: string) {
+    setNotifications((prev) => prev.filter((n) => n.id !== id))
+    await fetch(`/api/notifications?userId=${userId}&id=${id}`, { method: 'DELETE' })
+    refreshUnreadCount()
+  }
+
+  async function clearAll() {
+    setNotifications([])
+    await fetch(`/api/notifications?userId=${userId}&all=1`, { method: 'DELETE' })
+    refreshUnreadCount()
+  }
+
   const unread = notifications.filter((n) => !n.read).length
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 pt-12 pb-4 shadow-sm">
+      <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bell className="text-indigo-600" size={22} />
-            <h1 className="text-xl font-bold text-gray-900">Alerts</h1>
+            <Bell className="text-indigo-600 dark:text-indigo-400" size={22} />
+            <h1 className="text-xl font-bold text-foreground">Alerts</h1>
             {unread > 0 && (
               <span className="bg-red-500 text-white text-xs font-bold rounded-full px-2 py-0.5">
                 {unread}
               </span>
             )}
           </div>
-          {unread > 0 && (
-            <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs text-gray-500 gap-1">
-              <CheckCheck size={14} /> Mark all read
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            {unread > 0 && (
+              <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs text-muted-foreground gap-1">
+                <CheckCheck size={14} /> Read all
+              </Button>
+            )}
+            {notifications.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearAll} className="text-xs text-red-500 gap-1">
+                <Trash2 size={14} /> Clear
+              </Button>
+            )}
+          </div>
         </div>
         <p className="text-xs text-gray-400 mt-1">
           Changes are highlighted:
@@ -140,6 +167,7 @@ export default function NotificationsPage() {
               key={notif.id}
               notification={notif}
               onRead={() => !notif.read && markRead(notif.id)}
+              onDelete={() => deleteNotif(notif.id)}
             />
           ))
         )}
@@ -148,41 +176,48 @@ export default function NotificationsPage() {
   )
 }
 
-function NotificationCard({ notification: n, onRead }: { notification: Notification; onRead: () => void }) {
+function NotificationCard({ notification: n, onRead, onDelete }: { notification: Notification; onRead: () => void; onDelete: () => void }) {
   const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.removed
 
   return (
-    <button
-      onClick={onRead}
+    <div
       className={cn(
-        'w-full text-left flex gap-3 items-start rounded-xl border p-3.5 transition-all',
+        'relative flex gap-3 items-start rounded-xl border p-3.5 transition-all',
         cfg.bg, cfg.border,
         !n.read && 'shadow-sm',
         n.read && 'opacity-70'
       )}
     >
-      {/* Left icon */}
-      <div className={cn('shrink-0 w-8 h-8 rounded-full flex items-center justify-center', cfg.badgeBg)}>
+      {/* Clickable area marks as read */}
+      <button onClick={onRead} className="absolute inset-0" aria-label="Mark read" />
+
+      <div className={cn('shrink-0 w-8 h-8 rounded-full flex items-center justify-center z-10', cfg.badgeBg)}>
         {cfg.icon}
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-2">
+      <div className="flex-1 min-w-0 z-10 pointer-events-none">
+        <div className="flex items-start justify-between gap-2 pr-6">
           <div>
             <span className={cn('text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded mr-1', cfg.badgeBg, cfg.badgeText)}>
               {cfg.label}
             </span>
-            <span className="text-sm font-semibold text-gray-900">{n.title}</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-900">{n.title}</span>
           </div>
-          {!n.read && (
-            <span className="shrink-0 w-2 h-2 rounded-full bg-indigo-500 mt-1.5" />
-          )}
+          {!n.read && <span className="shrink-0 w-2 h-2 rounded-full bg-indigo-500 mt-1.5" />}
         </div>
         <p className="text-xs text-gray-600 mt-0.5 leading-snug">{n.body}</p>
         <p className="text-[10px] text-gray-400 mt-1">
           {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
         </p>
       </div>
-    </button>
+
+      <button
+        onClick={onDelete}
+        className="absolute top-2 right-2 z-20 p-1 rounded-md text-gray-400 hover:text-red-500 hover:bg-white/60"
+        aria-label="Delete"
+      >
+        <X size={14} />
+      </button>
+    </div>
   )
 }

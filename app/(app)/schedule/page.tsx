@@ -1,121 +1,291 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { CalendarDays, Clock, MapPin, User } from 'lucide-react'
+import { CalendarRange, Sheet as SheetIcon, MapPin, User, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
-import { groupCoursesByDay } from '@/lib/clashes'
 import type { Course } from '@/lib/types'
 
-const DAY_LABELS: Record<string, string> = {
-  MON: 'Monday', TUE: 'Tuesday', WED: 'Wednesday',
-  THU: 'Thursday', FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday',
+const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
+
+function localISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+function mondayISO(d: Date): string {
+  return localISO(startOfWeek(d, { weekStartsOn: 1 }))
+}
+function timeMin(t: string | null): number {
+  if (!t) return 0
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + (m || 0)
+}
+
+const CHANGE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000
+const CHANGE_LABEL: Record<string, string> = {
+  added: 'New', moved: 'Moved', updated: 'Updated',
+  rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
+}
+function recentlyChanged(c: Course): boolean {
+  if (!c.last_changed_at || !c.change_kind) return false
+  return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
+}
 
 export default function SchedulePage() {
   const { userId } = useSession()
-  const [courses, setCourses] = useState<Course[]>([])
+  const todayISO = localISO(new Date())
+  const [weekStart, setWeekStart] = useState(mondayISO(new Date()))
+  const [windowCourses, setWindowCourses] = useState<Course[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<'week' | 'day'>('week')
+  const [selectedDate, setSelectedDate] = useState(todayISO)
+
+  const weekDates = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => localISO(addDays(parseISO(weekStart), i))),
+    [weekStart]
+  )
 
   useEffect(() => {
     if (!userId) return
     fetch(`/api/courses/user?userId=${userId}`)
       .then((r) => r.json())
-      .then((data: { courses: Course }[]) => {
-        setCourses(data.map((d) => d.courses).filter(Boolean))
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+      .then((data: { course_id: string }[]) => setSelectedIds(new Set(data.map((d) => d.course_id))))
+      .catch(console.error)
   }, [userId])
 
-  const byDay = useMemo(() => groupCoursesByDay(courses), [courses])
+  useEffect(() => {
+    setLoading(true)
+    const from = weekDates[0]
+    const to = weekDates[6]
+    fetch(`/api/courses?from=${from}&to=${to}`)
+      .then((r) => r.json())
+      .then((c: Course[]) => { setWindowCourses(c ?? []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [weekDates])
 
-  const activeDays = DAY_ORDER.filter((d) => (byDay.get(d)?.length ?? 0) > 0)
+  // Courses to display for the week: my picks + common events (exams).
+  const visible = useMemo(
+    () => windowCourses.filter((c) => c.is_common || selectedIds.has(c.id)),
+    [windowCourses, selectedIds]
+  )
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, Course[]>()
+    for (const iso of weekDates) map.set(iso, [])
+    for (const c of visible) if (c.session_date && map.has(c.session_date)) map.get(c.session_date)!.push(c)
+    for (const [, list] of map) list.sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time))
+    return map
+  }, [visible, weekDates])
+
+  function openSheet() { window.open(`https://docs.google.com/spreadsheets/d/${SHEET_ID}`, '_blank') }
+  function shiftWeek(delta: number) { setWeekStart(localISO(addDays(parseISO(weekStart), delta * 7))) }
+
+  const monthLabel = `${format(parseISO(weekDates[0]), 'MMM d')} – ${format(parseISO(weekDates[6]), 'MMM d')}`
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 pt-12 pb-4 shadow-sm">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="text-indigo-600" size={22} />
-          <h1 className="text-xl font-bold text-gray-900">My Schedule</h1>
+      <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CalendarRange className="text-indigo-600 dark:text-indigo-400" size={22} />
+            <h1 className="text-xl font-bold text-foreground">Schedule</h1>
+          </div>
+          <button
+            onClick={openSheet}
+            className="flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 px-2.5 py-1.5 rounded-lg"
+          >
+            <SheetIcon size={13} /> Sheet
+          </button>
         </div>
-        <p className="text-sm text-gray-500 mt-0.5">{courses.length} course{courses.length !== 1 ? 's' : ''} selected</p>
+
+        {/* Week navigation */}
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={() => shiftWeek(-1)} className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronLeft size={16} /></button>
+          <button onClick={() => setWeekStart(mondayISO(new Date()))} className="text-sm font-semibold text-foreground flex-1 text-center">
+            {monthLabel}
+          </button>
+          <button onClick={() => shiftWeek(1)} className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronRight size={16} /></button>
+        </div>
+
+        <div className="mt-2 flex items-center gap-2">
+          <div className="inline-flex bg-muted rounded-lg p-0.5">
+            {(['week', 'day'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn('px-3 py-1 text-xs font-semibold rounded-md capitalize transition-colors',
+                  view === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}
+              >{v}</button>
+            ))}
+          </div>
+          <span className="ml-auto text-xs text-muted-foreground">My schedule + exams</span>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+      <div className="flex-1 overflow-auto">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)
-        ) : courses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <CalendarDays size={40} strokeWidth={1} />
-            <p className="mt-3 text-sm">No courses selected yet</p>
-            <a href="/" className="mt-2 text-xs text-indigo-500 underline">Go to Course Picker →</a>
-          </div>
-        ) : activeDays.length === 0 ? (
-          <div className="text-center py-10 text-gray-400 text-sm">
-            Selected courses have no scheduled days yet
-          </div>
+          <div className="p-4 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
+        ) : view === 'week' ? (
+          <WeekGrid weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedIds={selectedIds} />
         ) : (
-          activeDays.map((day) => {
-            const dayCourses = byDay.get(day) ?? []
-            return (
-              <div key={day}>
-                <div className="flex items-center gap-2 mb-2">
-                  <h2 className="text-sm font-bold text-gray-700">{DAY_LABELS[day] ?? day}</h2>
-                  <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-xs text-gray-400">{dayCourses.length} class{dayCourses.length !== 1 ? 'es' : ''}</span>
-                </div>
-                <div className="space-y-2">
-                  {dayCourses.map((course) => (
-                    <ScheduleCourseRow key={course.id} course={course} />
-                  ))}
-                </div>
-              </div>
-            )
-          })
+          <DayView weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedDate={selectedDate} setSelectedDate={setSelectedDate} selectedIds={selectedIds} />
         )}
       </div>
     </div>
   )
 }
 
-function ScheduleCourseRow({ course }: { course: Course }) {
+function WeekGrid({ weekDates, byDate, todayISO, selectedIds }: {
+  weekDates: string[]; byDate: Map<string, Course[]>; todayISO: string; selectedIds: Set<string>
+}) {
+  const times = useMemo(() => {
+    const set = new Set<string>()
+    for (const iso of weekDates) for (const c of byDate.get(iso) ?? []) if (c.start_time) set.add(c.start_time)
+    return [...set].sort((a, b) => timeMin(a) - timeMin(b))
+  }, [weekDates, byDate])
+
+  const totalThisWeek = weekDates.reduce((n, iso) => n + (byDate.get(iso)?.length ?? 0), 0)
+  if (totalThisWeek === 0) {
+    return <div className="p-10 text-center text-sm text-muted-foreground">No classes this week.</div>
+  }
+
   return (
-    <div className={cn(
-      'flex gap-3 items-center rounded-xl border p-3',
-      course.is_cancelled ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'
-    )}>
-      {/* Time column */}
-      <div className="shrink-0 text-center w-16">
-        <p className={cn('text-xs font-bold', course.is_cancelled ? 'text-red-500 line-through' : 'text-indigo-600')}>
-          {course.start_time}
-        </p>
-        {course.end_time && (
-          <p className="text-[10px] text-gray-400">{course.end_time}</p>
-        )}
+    <div className="overflow-x-auto p-3">
+      <div className="grid gap-1.5 min-w-max" style={{ gridTemplateColumns: `44px repeat(7, minmax(92px, 1fr))` }}>
+        <div />
+        {weekDates.map((iso) => {
+          const d = parseISO(iso)
+          const isToday = iso === todayISO
+          return (
+            <div key={iso} className={cn('text-center pb-1', isToday && 'text-indigo-600 dark:text-indigo-400')}>
+              <div className="text-[10px] font-medium text-muted-foreground">{format(d, 'EEE').toUpperCase()}</div>
+              <div className={cn('text-sm font-bold', isToday ? 'text-indigo-600 dark:text-indigo-400' : 'text-foreground')}>{format(d, 'd')}</div>
+            </div>
+          )
+        })}
+
+        {times.map((t) => (
+          <Row key={t} time={t} weekDates={weekDates} byDate={byDate} selectedIds={selectedIds} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Row({ time, weekDates, byDate, selectedIds }: {
+  time: string; weekDates: string[]; byDate: Map<string, Course[]>; selectedIds: Set<string>
+}) {
+  return (
+    <>
+      <div className="text-[10px] font-mono text-muted-foreground text-right pr-1 pt-1.5">{time}</div>
+      {weekDates.map((iso) => {
+        const cells = (byDate.get(iso) ?? []).filter((c) => c.start_time === time)
+        return (
+          <div key={iso} className="space-y-1">
+            {cells.map((c) => <Block key={c.id} course={c} mine={selectedIds.has(c.id)} />)}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+function Block({ course, mine }: { course: Course; mine: boolean }) {
+  const cancelled = course.is_cancelled
+  const common = course.is_common
+  const changed = recentlyChanged(course)
+  return (
+    <div className={cn('relative rounded-md px-1.5 py-1 text-[10px] leading-tight border',
+      cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/50 dark:border-red-900'
+        : common ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900'
+        : mine ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800'
+        : 'bg-card border-border',
+      changed && !cancelled && 'ring-1 ring-indigo-400 dark:ring-indigo-500')}>
+      {changed && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+      <p className={cn('font-semibold truncate',
+        cancelled ? 'text-red-600 line-through' : common ? 'text-amber-700 dark:text-amber-400' : 'text-foreground')}>
+        {common ? course.course_name : course.course_code}
+      </p>
+      {course.end_time && <p className="text-muted-foreground">{course.end_time}</p>}
+      {course.room && <p className="text-muted-foreground truncate">Class {course.room}</p>}
+    </div>
+  )
+}
+
+function DayView({ weekDates, byDate, todayISO, selectedDate, setSelectedDate, selectedIds }: {
+  weekDates: string[]; byDate: Map<string, Course[]>; todayISO: string
+  selectedDate: string; setSelectedDate: (d: string) => void; selectedIds: Set<string>
+}) {
+  const day = weekDates.includes(selectedDate) ? selectedDate : weekDates[0]
+  const list = byDate.get(day) ?? []
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-3 border-b border-border">
+        {weekDates.map((iso) => {
+          const d = parseISO(iso)
+          const count = byDate.get(iso)?.length ?? 0
+          const active = iso === day
+          return (
+            <button key={iso} onClick={() => setSelectedDate(iso)}
+              className={cn('shrink-0 flex flex-col items-center px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors min-w-[48px]',
+                active ? 'bg-indigo-600 text-white' : iso === todayISO ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'bg-muted text-foreground')}>
+              <span className="text-[10px]">{format(d, 'EEE').toUpperCase()}</span>
+              <span>{format(d, 'd')}</span>
+              {count > 0 && <span className={cn('w-1 h-1 rounded-full mt-0.5', active ? 'bg-white/70' : 'bg-indigo-400')} />}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Divider */}
-      <div className={cn('w-px self-stretch', course.is_cancelled ? 'bg-red-200' : 'bg-indigo-100')} />
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <h2 className="text-sm font-bold text-foreground mb-3">{format(parseISO(day), 'EEEE, MMMM d')}</h2>
+        {list.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-10 text-center">No classes.</p>
+        ) : (
+          <div className="space-y-2">{list.map((c) => <DayRow key={c.id} course={c} mine={selectedIds.has(c.id)} />)}</div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-      {/* Course info */}
+function DayRow({ course, mine }: { course: Course; mine: boolean }) {
+  const cancelled = course.is_cancelled
+  const common = course.is_common
+  const changed = recentlyChanged(course)
+  return (
+    <div className={cn('flex gap-3 items-center rounded-xl border p-3',
+      cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-900'
+        : common ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900'
+        : 'bg-card border-border',
+      changed && !cancelled && 'ring-1 ring-indigo-300 dark:ring-indigo-700')}>
+      <div className="shrink-0 text-center w-16">
+        <p className={cn('text-xs font-bold', cancelled ? 'text-red-500 line-through' : 'text-indigo-600 dark:text-indigo-400')}>{course.start_time}</p>
+        {course.end_time && <p className="text-[10px] text-muted-foreground">{course.end_time}</p>}
+      </div>
+      <div className={cn('w-px self-stretch', cancelled ? 'bg-red-200' : 'bg-border')} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-mono font-semibold text-indigo-600">{course.course_code}</span>
-          {course.is_cancelled && (
-            <span className="text-[10px] font-bold text-red-600 bg-red-100 px-1 py-0.5 rounded">CANCELLED</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {common ? (
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1"><GraduationCap size={12} /> {course.course_name}</span>
+          ) : (
+            <>
+              <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400">{course.course_code}</span>
+              {mine && <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1 rounded">MINE</span>}
+            </>
           )}
+          {cancelled && <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-900 px-1 py-0.5 rounded flex items-center gap-1"><AlertTriangle size={8} /> CANCELLED</span>}
+          {changed && !cancelled && <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900 px-1 py-0.5 rounded">{CHANGE_LABEL[course.change_kind ?? ''] ?? 'Changed'}</span>}
         </div>
-        <p className={cn('text-sm font-medium truncate', course.is_cancelled && 'line-through text-red-500')}>
-          {course.course_name}
-        </p>
-        <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-400 flex-wrap">
-          {course.room && <span className="flex items-center gap-0.5"><MapPin size={9} />{course.room}</span>}
+        {!common && <p className={cn('text-sm font-medium truncate', cancelled && 'line-through text-red-500')}>{course.course_name}</p>}
+        <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
+          {course.room && <span className="flex items-center gap-0.5"><MapPin size={9} />Class {course.room}</span>}
           {course.instructor && <span className="flex items-center gap-0.5"><User size={9} />{course.instructor}</span>}
         </div>
+        {changed && course.change_note && <p className="mt-0.5 text-[11px] text-indigo-700 dark:text-indigo-300">↻ {course.change_note}</p>}
       </div>
     </div>
   )
