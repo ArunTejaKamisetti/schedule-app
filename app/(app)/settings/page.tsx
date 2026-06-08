@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Copy, Check, Bell, BellOff, Calendar, ExternalLink,
-  Download, Sheet, Info, Link2, Sun, Moon, Monitor, Pencil, ChevronDown, Apple,
+  Download, Sheet, Info, Link2, Sun, Moon, Monitor, Pencil, ChevronDown, Apple, CalendarCheck, Unplug,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
@@ -36,8 +36,28 @@ export default function SettingsPage() {
     notify_cancelled: true, notify_rescheduled: true, notify_room: true, notify_daily_summary: true,
   })
   const [showManual, setShowManual] = useState(false)
+  const [gcalConnected, setGcalConnected] = useState(false)
 
   useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    if (!userId) return
+    fetch(`/api/calendar/google/status?userId=${userId}`)
+      .then((r) => r.json())
+      .then((d) => setGcalConnected(!!d.connected))
+      .catch(() => {})
+
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('gcal') === 'connected') {
+      toast.success('Google Calendar connected!')
+      setGcalConnected(true)
+      window.history.replaceState({}, '', '/settings')
+    } else if (params.get('gcal') === 'error') {
+      const reason = params.get('reason')
+      toast.error(reason ? `Google Calendar: ${reason}` : 'Could not connect Google Calendar', { duration: 8000 })
+      window.history.replaceState({}, '', '/settings')
+    }
+  }, [userId])
 
   useEffect(() => {
     if (user?.display_name) setDisplayName(user.display_name)
@@ -128,6 +148,15 @@ export default function SettingsPage() {
     window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank')
   }
   function downloadICS() { window.open(`/api/calendar?userId=${userId}`, '_blank') }
+  function connectGoogle() { window.location.href = `/api/calendar/google/connect?userId=${userId}` }
+  async function disconnectGoogle() {
+    await fetch('/api/calendar/google/disconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    setGcalConnected(false)
+    toast.success('Google Calendar disconnected')
+  }
   function openSheet() { window.open(`https://docs.google.com/spreadsheets/d/${SHEET_ID}`, '_blank') }
 
   return (
@@ -213,7 +242,7 @@ export default function SettingsPage() {
         <Section title="Calendar (subscribe)">
           <p className="text-xs text-muted-foreground mb-2">
             Subscribe once and your calendar stays updated automatically.
-            <br /><b className="text-foreground">iPhone:</b> tap “Subscribe”. <b className="text-foreground">Android / Google:</b> use “Add to Google Calendar” — it must be done once on a <b className="text-foreground">computer</b> (Google Calendar’s “From URL” isn’t in the phone app), then it shows on your phone.
+            <br /><b className="text-foreground">iPhone:</b> tap “Subscribe”. <b className="text-foreground">Android:</b> easiest is “Connect Google Calendar” below — or “Add to Google Calendar” once on a <b className="text-foreground">computer</b> (the “From URL” option isn’t in the phone app).
           </p>
           <div className="space-y-2">
             <Button onClick={subscribeCalendar} className="w-full justify-start gap-3 h-12">
@@ -251,6 +280,28 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {/* Google Calendar sync (API write — needs an Internal @iimk OAuth app) */}
+        <Section title="Google Calendar sync (Android)">
+          <p className="text-xs text-muted-foreground mb-2">
+            <b className="text-foreground">Best on Android.</b> Sign in with your <b className="text-foreground">@iimk.ac.in</b> account to auto-sync your schedule straight into Google Calendar — updates within minutes, no manual refresh.
+          </p>
+          {gcalConnected ? (
+            <div className="flex items-center gap-3 rounded-xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 p-4">
+              <CalendarCheck size={20} className="text-green-600 dark:text-green-400" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-foreground">Connected</p>
+                <p className="text-xs text-muted-foreground">Your calendar updates automatically</p>
+              </div>
+              <Button onClick={disconnectGoogle} variant="outline" size="sm" className="gap-1">
+                <Unplug size={14} /> Disconnect
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={connectGoogle} className="w-full justify-center gap-2 h-12">
+              <Calendar size={18} /> Connect Google Calendar
+            </Button>
+          )}
+        </Section>
 
         {/* Your courses */}
         <Section title="Your courses">
