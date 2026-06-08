@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarDays, Clock } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Course } from '@/lib/types'
 
-const STRIP_DAYS = 21
+// Full term window — every day is selectable on the scroll rail.
+const TERM_START = '2026-06-08'
+const TERM_END = '2026-08-31'
 const CHANGE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000 // highlight changes for 10 days
 
 const CHANGE_LABEL: Record<string, string> = {
@@ -25,15 +27,35 @@ function recentlyChanged(c: Course): boolean {
   return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
 }
 
+// All ISO dates across the term, in order.
+const TERM_DATES: string[] = (() => {
+  const out: string[] = []
+  let d = parseISO(TERM_START)
+  const end = parseISO(TERM_END)
+  while (d <= end) { out.push(localISO(d)); d = addDays(d, 1) }
+  return out
+})()
+
 export default function TodayPage() {
   const { userId } = useSession()
   const [mySessions, setMySessions] = useState<Course[]>([])
   const [commonEvents, setCommonEvents] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
-  const dateInputRef = useRef<HTMLInputElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
 
   const todayISO = localISO(new Date())
-  const [selectedDate, setSelectedDate] = useState(todayISO)
+  const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
+  const [selectedDate, setSelectedDate] = useState(initialDate)
+
+  function scrollToDate(iso: string, smooth: boolean) {
+    railRef.current?.querySelector(`[data-iso="${iso}"]`)?.scrollIntoView({
+      behavior: smooth ? 'smooth' : 'auto', block: 'nearest', inline: 'center',
+    })
+  }
+  // Center the selected day on first paint.
+  useEffect(() => { scrollToDate(initialDate, false) }, [initialDate])
+
+  function jumpToday() { setSelectedDate(initialDate); scrollToDate(initialDate, true) }
 
   useEffect(() => {
     if (!userId) return
@@ -63,63 +85,72 @@ export default function TodayPage() {
     return map
   }, [mySessions, commonEvents])
 
-  const strip = Array.from({ length: STRIP_DAYS }, (_, i) => localISO(addDays(new Date(), i)))
-  const selDate = parseISO(selectedDate)
+  const changedDates = useMemo(() => {
+    const s = new Set<string>()
+    for (const c of [...mySessions, ...commonEvents]) {
+      if (c.session_date && recentlyChanged(c)) s.add(c.session_date)
+    }
+    return s
+  }, [mySessions, commonEvents])
 
-  function openDatePicker() {
-    const el = dateInputRef.current
-    if (el?.showPicker) el.showPicker()
-    else el?.focus()
-  }
+  const selDate = parseISO(selectedDate)
 
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
-        <div className="flex items-start justify-between">
+        <div className="flex items-end justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground mb-1">
               {selectedDate === todayISO ? 'Today' : format(selDate, 'EEEE')}
             </h1>
-            <p className="text-sm text-muted-foreground">{format(selDate, 'EEEE, MMMM d, yyyy')}</p>
+            <p className="text-sm text-muted-foreground">{format(selDate, 'MMMM d, yyyy')}</p>
           </div>
-          <div className="relative">
+          {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
             <button
-              onClick={openDatePicker}
+              onClick={jumpToday}
               className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg"
             >
-              <CalendarDays size={14} /> Pick date
+              <CalendarCheck size={14} /> Today
             </button>
-            <input
-              ref={dateInputRef}
-              type="date"
-              value={selectedDate}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="absolute inset-0 opacity-0 pointer-events-none w-0 h-0"
-            />
-          </div>
+          )}
         </div>
 
-        <div className="mt-3 flex gap-1 overflow-x-auto pb-1 no-scrollbar">
-          {strip.map((iso) => {
+        {/* Full-term scroll rail — every day Jun 8 → Aug 31 is selectable */}
+        <div ref={railRef} className="mt-3 flex gap-1 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
+          {TERM_DATES.map((iso, i) => {
             const d = parseISO(iso)
             const isToday = iso === todayISO
             const isActive = iso === selectedDate
             const count = countByDate[iso] ?? 0
+            const hasChange = changedDates.has(iso)
+            const newMonth = i === 0 || parseISO(TERM_DATES[i - 1]).getMonth() !== d.getMonth()
             return (
-              <button
-                key={iso}
-                onClick={() => setSelectedDate(iso)}
-                className={cn(
-                  'flex flex-col items-center px-3 py-2 rounded-xl transition-all shrink-0 min-w-[52px]',
-                  isActive ? 'bg-indigo-600 text-white'
-                    : isToday ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800'
-                    : 'text-muted-foreground hover:bg-muted'
+              <div key={iso} className="flex items-stretch shrink-0">
+                {newMonth && (
+                  <div className="flex items-center px-1.5">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase [writing-mode:vertical-rl] rotate-180 tracking-wider">
+                      {format(d, 'MMM')}
+                    </span>
+                  </div>
                 )}
-              >
-                <span className="text-[10px] font-medium">{format(d, 'EEE').toUpperCase()}</span>
-                <span className="text-base font-bold leading-tight">{format(d, 'd')}</span>
-                <span className={cn('w-1.5 h-1.5 rounded-full mt-0.5', count > 0 ? (isActive ? 'bg-white/60' : 'bg-indigo-400') : 'bg-transparent')} />
-              </button>
+                <button
+                  data-iso={iso}
+                  onClick={() => setSelectedDate(iso)}
+                  className={cn(
+                    'flex flex-col items-center px-2.5 py-2 rounded-xl transition-colors min-w-[48px]',
+                    isActive ? 'bg-indigo-600 text-white'
+                      : isToday ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800'
+                      : 'text-muted-foreground hover:bg-muted'
+                  )}
+                >
+                  <span className="text-[10px] font-medium">{format(d, 'EEE').toUpperCase()}</span>
+                  <span className="text-base font-bold leading-tight">{format(d, 'd')}</span>
+                  <span className={cn('w-1.5 h-1.5 rounded-full mt-0.5',
+                    hasChange ? (isActive ? 'bg-amber-300' : 'bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-900')
+                      : count > 0 ? (isActive ? 'bg-white/70' : 'bg-indigo-400')
+                      : 'bg-transparent')} />
+                </button>
+              </div>
             )
           })}
         </div>

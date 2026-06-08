@@ -27,6 +27,14 @@ const CHANGE_LABEL: Record<string, string> = {
   added: 'New', moved: 'Moved', updated: 'Updated',
   rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
 }
+
+// Canonical timetable slots from the sheet — always shown (even if empty that week)
+// so the weekly grid is uniform like the Excel sheet.
+const CANONICAL_SLOTS = ['09:15', '10:45', '12:15', '14:30', '16:00', '17:30', '19:00', '20:30']
+const SLOT_END: Record<string, string> = {
+  '09:15': '10:30', '10:45': '12:00', '12:15': '13:30', '14:30': '15:45',
+  '16:00': '17:15', '17:30': '18:45', '19:00': '20:15', '20:30': '21:45', '22:00': '23:15',
+}
 function recentlyChanged(c: Course): boolean {
   if (!c.last_changed_at || !c.change_kind) return false
   return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
@@ -140,8 +148,9 @@ export default function SchedulePage() {
 function WeekGrid({ weekDates, byDate, todayISO, selectedIds }: {
   weekDates: string[]; byDate: Map<string, Course[]>; todayISO: string; selectedIds: Set<string>
 }) {
+  // Always show the canonical slots, plus any extra times that appear this week.
   const times = useMemo(() => {
-    const set = new Set<string>()
+    const set = new Set<string>(CANONICAL_SLOTS)
     for (const iso of weekDates) for (const c of byDate.get(iso) ?? []) if (c.start_time) set.add(c.start_time)
     return [...set].sort((a, b) => timeMin(a) - timeMin(b))
   }, [weekDates, byDate])
@@ -153,7 +162,7 @@ function WeekGrid({ weekDates, byDate, todayISO, selectedIds }: {
 
   return (
     <div className="overflow-x-auto p-3">
-      <div className="grid gap-1.5 min-w-max" style={{ gridTemplateColumns: `44px repeat(7, minmax(92px, 1fr))` }}>
+      <div className="grid gap-1.5 min-w-max" style={{ gridTemplateColumns: `52px repeat(7, minmax(92px, 1fr))` }}>
         <div />
         {weekDates.map((iso) => {
           const d = parseISO(iso)
@@ -179,11 +188,14 @@ function Row({ time, weekDates, byDate, selectedIds }: {
 }) {
   return (
     <>
-      <div className="text-[10px] font-mono text-muted-foreground text-right pr-1 pt-1.5">{time}</div>
+      <div className="text-right pr-1 pt-1.5 leading-tight">
+        <div className="text-[10px] font-mono font-semibold text-foreground">{time}</div>
+        {SLOT_END[time] && <div className="text-[9px] font-mono text-muted-foreground">{SLOT_END[time]}</div>}
+      </div>
       {weekDates.map((iso) => {
         const cells = (byDate.get(iso) ?? []).filter((c) => c.start_time === time)
         return (
-          <div key={iso} className="space-y-1">
+          <div key={iso} className="min-h-[2.25rem] rounded-md bg-muted/30 p-0.5 space-y-1">
             {cells.map((c) => <Block key={c.id} course={c} mine={selectedIds.has(c.id)} />)}
           </div>
         )
