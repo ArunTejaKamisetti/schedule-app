@@ -9,6 +9,7 @@ import { setSessionId, setSessionCode } from '@/lib/session'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { InstallPrompt } from '@/components/install-prompt'
 import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
@@ -237,12 +238,24 @@ export default function TodayPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
+        <InstallPrompt />
         {tab === 'mess' ? (
           <MessView weekday={WD_CODE[selDate.getDay()]} dateLabel={format(selDate, 'EEEE')} />
         ) : tab === 'bus' ? (
           <BusView />
         ) : loading ? (
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
+        ) : mySessions.length === 0 ? (
+          <>
+            <Onboarding />
+            {allForDate.length > 0 && (
+              <div className="space-y-2.5 mt-3">
+                {allForDate.map((course) => (
+                  <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} />
+                ))}
+              </div>
+            )}
+          </>
         ) : allForDate.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <span className="text-4xl">🎉</span>
@@ -353,6 +366,27 @@ function ClassCard({ course, status, note, onMark }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── New-user onboarding ──────────────────────────────────────────────────────
+function Onboarding() {
+  return (
+    <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/50 dark:to-violet-950/40 p-5 text-center">
+      <div className="text-4xl">👋</div>
+      <h2 className="mt-2 text-lg font-bold text-foreground">Welcome to KampusSchedule!</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Add your courses to see your daily classes, track attendance, set reminders, and compare with friends.
+      </p>
+      <ol className="mt-3 text-left text-xs text-muted-foreground max-w-xs mx-auto space-y-1.5">
+        <li><b className="text-foreground">1.</b> Go to <b className="text-foreground">Courses</b> and pick your electives.</li>
+        <li><b className="text-foreground">2.</b> Come back here — your day shows up on <b className="text-foreground">Home</b>.</li>
+        <li><b className="text-foreground">3.</b> Check the <b className="text-foreground">Mess</b> &amp; <b className="text-foreground">Bus</b> tabs above too.</li>
+      </ol>
+      <a href="/courses" className="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl">
+        <BookOpen size={16} /> Add your courses
+      </a>
     </div>
   )
 }

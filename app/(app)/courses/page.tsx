@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useTransition } from 'react'
-import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
+import { Search, BookOpen, Plus, Check, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -290,8 +290,7 @@ function CourseCard({
     <div
       className={cn(
         'relative flex items-start gap-3 rounded-xl border p-4 transition-all duration-150',
-        selected ? 'border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/40 shadow-sm' : 'border-border bg-card hover:border-muted-foreground/30',
-        group.is_cancelled && 'opacity-60'
+        selected ? 'border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/40 shadow-sm' : 'border-border bg-card hover:border-muted-foreground/30'
       )}
     >
       <div className={cn('w-1 self-stretch rounded-full shrink-0', selected ? 'bg-indigo-400' : 'bg-border')} />
@@ -301,11 +300,6 @@ function CourseCard({
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{group.code}</span>
               {group.credits && <span className="text-xs text-muted-foreground">{group.credits} cr</span>}
-              {group.is_cancelled && (
-                <span className="text-xs font-semibold text-red-600 bg-red-50 dark:bg-red-950 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <AlertTriangle size={10} /> CANCELLED
-                </span>
-              )}
             </div>
             <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{group.name}</p>
           </div>

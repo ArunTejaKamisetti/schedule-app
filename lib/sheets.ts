@@ -58,13 +58,14 @@ export function getDetailAbbr(code: string): string {
 }
 
 export function getArea(code: string): string {
+  // Programme qualifiers take priority (Sheet-2 truth) — a FIN/LSM-core course must land
+  // under FIN/LSM Core even if its base abbreviation also exists as a PGP elective area.
+  if (/\(FIN[-\s]?Core\)/i.test(code)) return 'FIN Core'
+  if (/\(LSM[-\s]?Core\)/i.test(code)) return 'LSM Core'
+  if (/\(FIN\)/i.test(code)) return 'FIN Elective'
+  if (/\(LSM\)/i.test(code)) return 'LSM Elective'
   const base = getBaseAbbr(code)
   if (AREA_MAP[base]) return AREA_MAP[base]
-  // FIN/LSM qualifiers
-  if (/\(FIN-Core\)/i.test(code)) return 'FIN Core'
-  if (/\(LSM-Core\)/i.test(code)) return 'LSM Core'
-  if (/\(FIN\)/i.test(code)) return AREA_MAP[base] || 'FIN Elective'
-  if (/\(LSM\)/i.test(code)) return AREA_MAP[base] || 'LSM Elective'
   return 'Other'
 }
 
