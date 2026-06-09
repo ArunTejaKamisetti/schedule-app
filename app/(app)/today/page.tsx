@@ -2,11 +2,16 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Course } from '@/lib/types'
+import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
+import { BUS, BUS_NOTE, BUS_STOPS } from '@/lib/bus'
+
+const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+type HomeTab = 'courses' | 'mess' | 'bus'
 
 // Full term window — every day is selectable on the scroll rail.
 const TERM_START = '2026-06-08'
@@ -61,6 +66,7 @@ export default function TodayPage() {
   const todayISO = localISO(new Date())
   const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
   const [selectedDate, setSelectedDate] = useState(initialDate)
+  const [tab, setTab] = useState<HomeTab>('courses')
 
   function scrollToDate(iso: string, smooth: boolean) {
     railRef.current?.querySelector(`[data-iso="${iso}"]`)?.scrollIntoView({
@@ -136,7 +142,19 @@ export default function TodayPage() {
           )}
         </div>
 
-        {/* Full-term scroll rail — every day Jun 8 → Aug 31 is selectable */}
+        {/* Tabs: Courses · Mess · Bus */}
+        <div className="mt-3 flex gap-1 bg-muted rounded-xl p-0.5">
+          {([['courses', 'Courses', BookOpen], ['mess', 'Mess', UtensilsCrossed], ['bus', 'Bus', Bus]] as const).map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-semibold transition-colors',
+                tab === id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}>
+              <Icon size={15} /> {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date rail — drives Courses (classes) and Mess (weekday). Bus is the same daily. */}
+        {tab !== 'bus' && (
         <div ref={railRef} className="mt-3 flex gap-1 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
           {TERM_DATES.map((iso, i) => {
             const d = parseISO(iso)
@@ -175,10 +193,15 @@ export default function TodayPage() {
             )
           })}
         </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {loading ? (
+        {tab === 'mess' ? (
+          <MessView weekday={WD_CODE[selDate.getDay()]} dateLabel={format(selDate, 'EEEE')} />
+        ) : tab === 'bus' ? (
+          <BusView />
+        ) : loading ? (
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
         ) : allForDate.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -290,6 +313,93 @@ function ClassCard({ course, status, note, onMark }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Mess menu (day-wise) ─────────────────────────────────────────────────────
+function MessView({ weekday, dateLabel }: { weekday: string; dateLabel: string }) {
+  const menu = MESS[weekday]
+  if (!menu) return <p className="text-sm text-muted-foreground text-center py-10">No menu.</p>
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Mess menu · <b className="text-foreground">{dateLabel}</b></p>
+      <MealCard title="Breakfast" emoji="🍳" meal={menu.breakfast} />
+      <MealCard title="Lunch" emoji="🍛" meal={menu.lunch} />
+      <MealCard title="Dinner" emoji="🍽️" meal={menu.dinner} />
+      <p className="text-[11px] text-muted-foreground text-center pt-1">{MESS_NOTE}</p>
+    </div>
+  )
+}
+
+function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: Meal }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <h3 className="text-sm font-bold text-foreground mb-2">{emoji} {title}</h3>
+      <div className="flex flex-wrap gap-1.5">
+        {meal.veg.map((v) => (
+          <span key={v} className="text-xs text-foreground bg-muted px-2 py-1 rounded-lg">{v}</span>
+        ))}
+      </div>
+      {meal.special && meal.special.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {meal.special.map((v) => (
+            <span key={v} className="text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-2 py-1 rounded-lg">{v}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Bus schedule ─────────────────────────────────────────────────────────────
+function BusView() {
+  const [from, setFrom] = useState('All')
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+  const nowMin = ist.getUTCHours() * 60 + ist.getUTCMinutes()
+
+  const trips = from === 'All' ? BUS : BUS.filter((t) => t.from === from)
+  const nextIdx = trips.findIndex((t) => t.min >= nowMin)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+        {['All', ...BUS_STOPS].map((s) => (
+          <button key={s} onClick={() => setFrom(s)}
+            className={cn('shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors',
+              from === s ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-border text-muted-foreground bg-card')}>
+            {s === 'All' ? 'All buses' : s}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {trips.map((t, i) => {
+          const isNext = i === nextIdx
+          return (
+            <div key={`${t.time}-${i}`} className={cn('flex items-center gap-3 rounded-xl border p-3',
+              isNext ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 ring-1 ring-indigo-300 dark:ring-indigo-700' : 'border-border bg-card')}>
+              <div className="shrink-0 w-16 text-center">
+                <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{t.time.replace(' ', '')}</p>
+                {isNext && <span className="text-[9px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded-full">NEXT</span>}
+              </div>
+              <div className="w-px self-stretch bg-border" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 flex-wrap text-xs">
+                  <span className="font-semibold text-foreground">{t.from}</span>
+                  {t.to.map((s, j) => (
+                    <span key={j} className="flex items-center gap-1 text-muted-foreground">
+                      <ArrowRight size={10} /> {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {t.maingate && <span className="shrink-0 text-[9px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-950 px-1.5 py-0.5 rounded">→ MAIN GATE</span>}
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground text-center pt-1">{BUS_NOTE}</p>
     </div>
   )
 }
