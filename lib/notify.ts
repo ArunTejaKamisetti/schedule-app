@@ -79,8 +79,16 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
   }
 
   for (const { userId, sub, notifs } of userNotifications.values()) {
-    // Store in-app notifications
-    const rows = notifs.map((ch) => ({
+    // Dedup identical changes (same type/course/date/time) → one edit = one alert.
+    const seen = new Set<string>()
+    const unique = notifs.filter((ch) => {
+      const key = `${ch.type}::${ch.course_code}::${ch.new?.session_date ?? ch.old?.session_date ?? ''}::${ch.new?.start_time ?? ch.old?.start_time ?? ''}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    const rows = unique.map((ch) => ({
       user_id: userId,
       title: buildTitle(ch),
       body: buildBody(ch),
@@ -91,15 +99,23 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
 
     await supabase.from('notifications').insert(rows)
 
-    // Send push notification (batch changes into one notification per user)
     if (sub) {
-      const summary = buildPushSummary(notifs)
+      const summary = buildPushSummary(unique)
       await sendPush(sub, summary.title, summary.body).catch(() => {
-        // Subscription expired — clear it
         supabase.from('users').update({ push_subscription: null }).eq('id', userId)
       })
     }
   }
+}
+
+const MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const WD3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function fmtDate(iso?: string | null): string {
+  if (!iso) return ''
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  const wd = WD3[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  return `${wd} ${d} ${MONTHS3[m - 1]}`
 }
 
 function buildTitle(ch: CourseChange): string {
@@ -114,20 +130,20 @@ function buildTitle(ch: CourseChange): string {
 }
 
 function buildBody(ch: CourseChange): string {
-  const when = ch.new?.session_date ?? ch.old?.session_date ?? ''
+  const when = fmtDate(ch.new?.session_date ?? ch.old?.session_date)
   switch (ch.type) {
     case 'cancelled':
-      return `${when} ${ch.old?.start_time ?? ''} session has been cancelled.`
+      return `${when}, ${ch.old?.start_time ?? ''} — class cancelled.`
     case 'rescheduled':
-      return ch.note ? `${when}: ${ch.note}` : `Rescheduled to ${ch.new?.start_time}`
+      return ch.note ? `${when}: ${ch.note}` : `${when} rescheduled to ${ch.new?.start_time}`
     case 'room_change':
-      return ch.note ? `${when}: ${ch.note}` : `Class changed from ${ch.old?.room ?? '?'} → ${ch.new?.room ?? '?'}`
+      return ch.note ? `${when}: ${ch.note}` : `${when}: class changed ${ch.old?.room ?? '?'} → ${ch.new?.room ?? '?'}`
     case 'added':
-      return `${when} ${ch.new?.start_time}–${ch.new?.end_time} in Class ${ch.new?.room ?? 'TBD'}`
+      return `${when}, ${ch.new?.start_time}–${ch.new?.end_time}${ch.new?.room ? ` · Class ${ch.new.room}` : ''}`
     case 'removed':
-      return `${when} ${ch.old?.start_time} session has been removed.`
+      return `${when}, ${ch.old?.start_time} — session removed.`
     case 'schedule_update':
-      return ch.note ? `${when}: ${ch.note}` : 'This session was updated. Tap to view.'
+      return ch.note ? `${when}: ${ch.note}` : `${when}: session updated.`
   }
 }
 

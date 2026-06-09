@@ -118,7 +118,10 @@ function CompareContent() {
             {slots.map((slot) => {
               const myC = myDay.find((c) => c.start_time === slot)
               const frC = theirDay.find((c) => c.start_time === slot)
-              const both = !!myC && !!frC
+              // A cancelled class isn't a real clash and can't be "same".
+              const myActive = !!myC && !myC.is_cancelled
+              const frActive = !!frC && !frC.is_cancelled
+              const both = myActive && frActive
               const same = both && myC!.course_code === frC!.course_code
               const state: CellState = same ? 'same' : both ? 'clash' : 'one'
               return (
@@ -140,17 +143,24 @@ type CellState = 'same' | 'clash' | 'one'
 
 function Cell({ course, state }: { course?: Course; state: CellState }) {
   if (!course) return <div className="rounded-lg border border-dashed border-border min-h-[2.5rem] flex items-center justify-center text-[11px] text-muted-foreground">—</div>
+  const cancelled = course.is_cancelled
   return (
     <div className={cn('rounded-lg border p-2 min-h-[2.5rem]',
-      state === 'same' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
+      cancelled ? 'bg-muted/50 border-border opacity-70'
+        : state === 'same' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
         : state === 'clash' ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
         : 'bg-card border-border')}>
       <p className={cn('text-xs font-semibold truncate',
-        state === 'same' ? 'text-green-700 dark:text-green-400' : state === 'clash' ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
+        cancelled ? 'text-muted-foreground line-through'
+          : state === 'same' ? 'text-green-700 dark:text-green-400' : state === 'clash' ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
         {course.course_code}
       </p>
-      <p className="text-[11px] text-muted-foreground truncate">{course.course_name}</p>
-      {course.room && <p className="text-[10px] text-muted-foreground flex items-center gap-0.5"><MapPin size={8} />Class {course.room}</p>}
+      {cancelled ? (
+        <p className="text-[10px] font-semibold text-red-500">CANCELLED</p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground truncate">{course.course_name}</p>
+      )}
+      {!cancelled && course.room && <p className="text-[10px] text-muted-foreground flex items-center gap-0.5"><MapPin size={8} />Class {course.room}</p>}
     </div>
   )
 }

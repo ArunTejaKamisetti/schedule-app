@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect, useMemo, useTransition } from 'react'
-import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
+import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap, DownloadCloud } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
+import { setSessionId, setSessionCode } from '@/lib/session'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -23,6 +25,11 @@ interface CourseGroup {
   is_cancelled: boolean
 }
 
+interface CourseStat {
+  code: string; name: string; area: string | null; instructor: string | null; room: string | null; credits: string | null
+  total: number; held: number; present: number; absent: number; left: number; expected: number
+}
+
 export default function CoursesPage() {
   const { userId } = useSession()
   const [allCourses, setAllCourses] = useState<Course[]>([])
@@ -32,7 +39,30 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importCode, setImportCode] = useState('')
+  const [importingProfile, setImportingProfile] = useState(false)
+  const [summary, setSummary] = useState<CourseStat[]>([])
   const [, startTransition] = useTransition()
+
+  async function importProfile() {
+    const code = importCode.trim().toUpperCase()
+    if (!code) return
+    setImportingProfile(true)
+    try {
+      const res = await fetch(`/api/user/resolve?code=${encodeURIComponent(code)}`)
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? 'Invalid code'); return }
+      setSessionId(data.userId)
+      setSessionCode(data.shareCode)
+      toast.success('Profile imported — reloading…')
+      setTimeout(() => window.location.reload(), 600)
+    } catch {
+      toast.error('Could not import. Try again.')
+    } finally {
+      setImportingProfile(false)
+    }
+  }
 
   useEffect(() => {
     // Catalog = one representative row per course (complete, no 1000-row cap).
@@ -54,6 +84,15 @@ export default function CoursesPage() {
       })
       .catch(console.error)
   }, [userId])
+
+  // Attendance stats for the static "My Courses" view (refreshed when leaving edit mode).
+  useEffect(() => {
+    if (!userId || editing) return
+    fetch(`/api/attendance/summary?userId=${userId}`)
+      .then((r) => r.json())
+      .then((d: CourseStat[]) => setSummary(Array.isArray(d) ? d : []))
+      .catch(() => {})
+  }, [userId, editing])
 
   // One card per unique course (GT-A, GT-B are distinct courses).
   const courseGroups = useMemo<CourseGroup[]>(() => {
@@ -156,18 +195,32 @@ export default function CoursesPage() {
             <BookOpen className="text-indigo-600 dark:text-indigo-400" size={22} />
             <h1 className="text-xl font-bold text-foreground">{showPicker ? 'Pick Courses' : 'My Courses'}</h1>
           </div>
-          {showPicker ? (
-            selectedGroups.length > 0 && editing ? (
-              <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
-            ) : (
-              <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
-            )
-          ) : (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
-              <Pencil size={14} /> Edit
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportOpen((s) => !s)} title="Import profile" className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <DownloadCloud size={15} /> Import
             </button>
-          )}
+            {showPicker ? (
+              selectedGroups.length > 0 && editing ? (
+                <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
+              ) : (
+                <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
+              )
+            ) : (
+              <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
+                <Pencil size={14} /> Edit
+              </button>
+            )}
+          </div>
         </div>
+        {importOpen && (
+          <div className="mb-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 p-3">
+            <p className="text-xs text-muted-foreground mb-2">Enter your <b className="text-foreground">profile code</b> (from Settings on your other device) to load all your courses here.</p>
+            <div className="flex gap-2">
+              <Input value={importCode} onChange={(e) => setImportCode(e.target.value.toUpperCase())} placeholder="e.g. AB12CD34" maxLength={8} className="font-mono tracking-wider text-sm" onKeyDown={(e) => e.key === 'Enter' && importProfile()} />
+              <Button onClick={importProfile} disabled={!importCode.trim() || importingProfile} size="sm">Import</Button>
+            </div>
+          </div>
+        )}
         {showPicker && (
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -185,7 +238,7 @@ export default function CoursesPage() {
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
         ) : !showPicker ? (
-          <StaticList groups={selectedGroups} />
+          <StaticList groups={selectedGroups} summary={summary} />
         ) : byArea.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <BookOpen size={40} strokeWidth={1} />
@@ -323,34 +376,71 @@ function CourseCard({
   )
 }
 
-// Read-only summary of the user's picked courses (shown until they tap Edit).
-function StaticList({ groups }: { groups: CourseGroup[] }) {
-  const ordered = [...groups].sort((a, b) =>
+// Read-only summary of the user's picked courses with attendance stats.
+function StaticList({ groups, summary }: { groups: CourseGroup[]; summary: CourseStat[] }) {
+  // Prefer the stats from the summary endpoint; fall back to catalog meta while it loads.
+  const byCode = new Map(summary.map((s) => [s.code, s]))
+  const items: CourseStat[] = groups.map((g) => byCode.get(g.code) ?? {
+    code: g.code, name: g.name, area: g.area, instructor: g.instructor, room: g.room, credits: g.credits,
+    total: 0, held: 0, present: 0, absent: 0, left: 0, expected: (parseInt(g.credits ?? '') || 0) * 8,
+  })
+  const ordered = items.sort((a, b) =>
     (AREA_ORDER.indexOf(a.area || 'Other') - AREA_ORDER.indexOf(b.area || 'Other')) || a.code.localeCompare(b.code)
   )
+
   return (
     <div className="space-y-2.5">
-      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} picked · tap <b className="text-foreground">Edit</b> to change</p>
-      {ordered.map((g) => (
-        <div key={g.code} className="flex items-start gap-3 rounded-xl border border-border bg-card p-4">
-          <div className="w-9 h-9 rounded-lg bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center shrink-0">
-            <GraduationCap size={18} className="text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
-              {g.area && <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{g.area}</span>}
-              {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
+      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance on Today/Week · tap <b className="text-foreground">Edit</b> to change</p>
+      {ordered.map((s) => {
+        const pct = s.held > 0 ? Math.round((s.present / s.held) * 100) : null
+        const mismatch = s.expected > 0 && s.total > 0 && s.expected !== s.total
+        return (
+          <div key={s.code} className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center shrink-0">
+                <GraduationCap size={18} className="text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{s.code}</span>
+                  {s.area && <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{s.area}</span>}
+                  {s.credits && <span className="text-xs text-muted-foreground">{s.credits} cr</span>}
+                </div>
+                <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{s.name}</p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  {s.room && <span className="flex items-center gap-1"><MapPin size={10} />Class {s.room}</span>}
+                  {s.instructor && <span className="flex items-center gap-1"><User size={10} />{s.instructor}</span>}
+                </div>
+              </div>
             </div>
-            <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-              {g.room && <span className="flex items-center gap-1"><MapPin size={10} />Class {g.room}</span>}
-              {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
+
+            {/* Attendance stats */}
+            <div className="mt-3 grid grid-cols-4 gap-1.5 text-center">
+              <Stat label="Present" value={`${s.present}/${s.total}`} tone="green" />
+              <Stat label="Absent" value={`${s.absent}`} tone="red" />
+              <Stat label="Attendance" value={pct === null ? '—' : `${pct}%`} tone={pct !== null && pct < 75 ? 'red' : 'indigo'} />
+              <Stat label="Left" value={`${s.left}`} tone="muted" />
             </div>
+            <p className="mt-1.5 text-[10px] text-muted-foreground flex items-center gap-1">
+              {s.total} scheduled (from sheet){mismatch && <span title={`Credits suggest ${s.expected} classes (${s.credits} cr × 8)`} className="text-amber-600 dark:text-amber-400">· credits expect {s.expected} ⓘ</span>}
+            </p>
           </div>
-        </div>
-      ))}
+        )
+      })}
       <a href="/schedule" className="block text-center text-sm font-semibold text-indigo-600 dark:text-indigo-400 py-2">View full schedule →</a>
+    </div>
+  )
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone: 'green' | 'red' | 'indigo' | 'muted' }) {
+  const c = {
+    green: 'text-green-700 dark:text-green-400', red: 'text-red-600 dark:text-red-400',
+    indigo: 'text-indigo-700 dark:text-indigo-300', muted: 'text-foreground',
+  }[tone]
+  return (
+    <div className="rounded-lg bg-muted/50 py-1.5">
+      <p className={cn('text-sm font-bold', c)}>{value}</p>
+      <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</p>
     </div>
   )
 }

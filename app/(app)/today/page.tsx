@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,8 +40,22 @@ export default function TodayPage() {
   const { userId } = useSession()
   const [mySessions, setMySessions] = useState<Course[]>([])
   const [commonEvents, setCommonEvents] = useState<Course[]>([])
+  const [attendance, setAttendance] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const railRef = useRef<HTMLDivElement>(null)
+
+  async function markAttendance(courseId: string, status: 'present' | 'absent' | null) {
+    setAttendance((prev) => {
+      const next = { ...prev }
+      if (status === null) delete next[courseId]
+      else next[courseId] = status
+      return next
+    })
+    await fetch('/api/attendance', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, courseId, status }),
+    }).catch(() => {})
+  }
 
   const todayISO = localISO(new Date())
   const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
@@ -62,10 +76,14 @@ export default function TodayPage() {
     Promise.all([
       fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
       fetch(`/api/courses?common=1`).then((r) => r.json()),
+      fetch(`/api/attendance?userId=${userId}`).then((r) => r.json()),
     ])
-      .then(([userRows, common]: [{ courses: Course }[], Course[]]) => {
+      .then(([userRows, common, att]: [{ courses: Course }[], Course[], { course_id: string; status: string }[]]) => {
         setMySessions((userRows ?? []).map((d) => d.courses).filter(Boolean))
         setCommonEvents(Array.isArray(common) ? common : [])
+        const map: Record<string, string> = {}
+        for (const a of att ?? []) map[a.course_id] = a.status
+        setAttendance(map)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -167,7 +185,9 @@ export default function TodayPage() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {allForDate.map((course) => <ClassCard key={course.id} course={course} />)}
+            {allForDate.map((course) => (
+              <ClassCard key={course.id} course={course} status={attendance[course.id]} onMark={markAttendance} />
+            ))}
           </div>
         )}
       </div>
@@ -175,7 +195,11 @@ export default function TodayPage() {
   )
 }
 
-function ClassCard({ course }: { course: Course }) {
+function ClassCard({ course, status, onMark }: {
+  course: Course
+  status?: string
+  onMark: (courseId: string, status: 'present' | 'absent' | null) => void
+}) {
   const cancelled = course.is_cancelled
   const common = course.is_common
   const changed = recentlyChanged(course)
@@ -229,6 +253,25 @@ function ClassCard({ course }: { course: Course }) {
       )}
       {changed && course.change_note && (
         <p className="mt-1.5 text-[11px] text-indigo-700 dark:text-indigo-300">↻ {course.change_note}</p>
+      )}
+
+      {/* Attendance — only for real classes, not exams/cancelled */}
+      {!common && !cancelled && (
+        <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2">
+          <span className="text-[11px] text-muted-foreground mr-auto">Attendance</span>
+          <button
+            onClick={() => onMark(course.id, status === 'present' ? null : 'present')}
+            className={cn('flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
+              status === 'present' ? 'bg-green-500 border-green-500 text-white' : 'border-green-300 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950')}>
+            <Check size={12} /> Present
+          </button>
+          <button
+            onClick={() => onMark(course.id, status === 'absent' ? null : 'absent')}
+            className={cn('flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
+              status === 'absent' ? 'bg-red-500 border-red-500 text-white' : 'border-red-300 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950')}>
+            <X size={12} /> Absent
+          </button>
+        </div>
       )}
     </div>
   )

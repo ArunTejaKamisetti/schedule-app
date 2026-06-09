@@ -1,14 +1,23 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { CalendarRange, Sheet as SheetIcon, MapPin, User, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useMemo, createContext, useContext } from 'react'
+import { CalendarRange, Sheet as SheetIcon, MapPin, User, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight, Check, X, StickyNote, Clock } from 'lucide-react'
 import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import type { Course } from '@/lib/types'
 
 const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
+
+// Avoids threading attendance/notes/open through every nested grid component.
+const DetailCtx = createContext<{
+  att: Record<string, string>
+  notes: Record<string, string>
+  onOpen: (c: Course) => void
+}>({ att: {}, notes: {}, onOpen: () => {} })
 
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -49,6 +58,10 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'week' | 'day'>('week')
   const [selectedDate, setSelectedDate] = useState(todayISO)
+  const [attMap, setAttMap] = useState<Record<string, string>>({})
+  const [noteMap, setNoteMap] = useState<Record<string, string>>({})
+  const [selected, setSelected] = useState<Course | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => localISO(addDays(parseISO(weekStart), i))),
@@ -61,7 +74,25 @@ export default function SchedulePage() {
       .then((r) => r.json())
       .then((data: { course_id: string }[]) => setSelectedIds(new Set(data.map((d) => d.course_id))))
       .catch(console.error)
+    fetch(`/api/attendance?userId=${userId}`).then((r) => r.json())
+      .then((a: { course_id: string; status: string }[]) => setAttMap(Object.fromEntries((a ?? []).map((x) => [x.course_id, x.status])))).catch(() => {})
+    fetch(`/api/notes?userId=${userId}`).then((r) => r.json())
+      .then((n: { course_id: string; body: string }[]) => setNoteMap(Object.fromEntries((n ?? []).map((x) => [x.course_id, x.body])))).catch(() => {})
   }, [userId])
+
+  function openDetail(c: Course) { setSelected(c); setNoteDraft(noteMap[c.id] ?? '') }
+
+  async function markAttendance(courseId: string, status: 'present' | 'absent' | null) {
+    setAttMap((p) => { const n = { ...p }; if (status === null) delete n[courseId]; else n[courseId] = status; return n })
+    await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, courseId, status }) }).catch(() => {})
+  }
+
+  async function saveNote(course: Course) {
+    const body = noteDraft.trim()
+    setNoteMap((p) => { const n = { ...p }; if (!body) delete n[course.id]; else n[course.id] = body; return n })
+    await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, courseId: course.id, sessionDate: course.session_date, body }) }).catch(() => {})
+    setSelected(null)
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -133,14 +164,61 @@ export default function SchedulePage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="p-4 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
-        ) : view === 'week' ? (
-          <WeekGrid weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedIds={selectedIds} />
-        ) : (
-          <DayView weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedDate={selectedDate} setSelectedDate={setSelectedDate} selectedIds={selectedIds} />
-        )}
+        <DetailCtx.Provider value={{ att: attMap, notes: noteMap, onOpen: openDetail }}>
+          {loading ? (
+            <div className="p-4 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
+          ) : view === 'week' ? (
+            <WeekGrid weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedIds={selectedIds} />
+          ) : (
+            <DayView weekDates={weekDates} byDate={byDate} todayISO={todayISO} selectedDate={selectedDate} setSelectedDate={setSelectedDate} selectedIds={selectedIds} />
+          )}
+        </DetailCtx.Provider>
       </div>
+
+      {/* Detail dialog: info + attendance + reminder note */}
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        {selected && (
+          <DialogContent>
+            <DialogTitle>{selected.is_common ? selected.course_name : selected.course_code}</DialogTitle>
+            {!selected.is_common && <p className="text-sm text-muted-foreground -mt-2">{selected.course_name}</p>}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1"><Clock size={12} />{selected.session_date && format(parseISO(selected.session_date), 'EEE, d MMM')} · {selected.start_time}–{selected.end_time}</span>
+              {selected.room && <span className="flex items-center gap-1"><MapPin size={12} />Class {selected.room}</span>}
+              {selected.instructor && <span className="flex items-center gap-1"><User size={12} />{selected.instructor}</span>}
+            </div>
+            {selected.is_cancelled && <p className="text-xs font-bold text-red-600">This class is cancelled.</p>}
+
+            {!selected.is_common && !selected.is_cancelled && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1.5">Attendance</p>
+                <div className="flex gap-2">
+                  <button onClick={() => markAttendance(selected.id, attMap[selected.id] === 'present' ? null : 'present')}
+                    className={cn('flex-1 flex items-center justify-center gap-1 text-sm font-semibold py-2 rounded-lg border',
+                      attMap[selected.id] === 'present' ? 'bg-green-500 border-green-500 text-white' : 'border-green-300 text-green-700 dark:text-green-400')}>
+                    <Check size={14} /> Present
+                  </button>
+                  <button onClick={() => markAttendance(selected.id, attMap[selected.id] === 'absent' ? null : 'absent')}
+                    className={cn('flex-1 flex items-center justify-center gap-1 text-sm font-semibold py-2 rounded-lg border',
+                      attMap[selected.id] === 'absent' ? 'bg-red-500 border-red-500 text-white' : 'border-red-300 text-red-600 dark:text-red-400')}>
+                    <X size={14} /> Absent
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1.5">Reminder note <span className="font-normal">(you'll get a push at 8 PM the day before)</span></p>
+              <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3} maxLength={500}
+                placeholder="e.g. Bring submission, quiz today…"
+                className="w-full text-sm rounded-lg border border-border bg-muted/50 p-2 outline-none focus:ring-2 focus:ring-indigo-300" />
+              <div className="mt-2 flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setSelected(null)}>Cancel</Button>
+                <Button size="sm" onClick={() => saveNote(selected)}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   )
 }
@@ -205,24 +283,32 @@ function Row({ time, weekDates, byDate, selectedIds }: {
 }
 
 function Block({ course, mine }: { course: Course; mine: boolean }) {
+  const { att, notes, onOpen } = useContext(DetailCtx)
   const cancelled = course.is_cancelled
   const common = course.is_common
   const changed = recentlyChanged(course)
+  const status = att[course.id]
+  const hasNote = !!notes[course.id]
   return (
-    <div className={cn('relative rounded-md px-1.5 py-1 text-[10px] leading-tight border',
+    <button onClick={() => onOpen(course)} className={cn('relative w-full text-left rounded-md px-1.5 py-1 text-[10px] leading-tight border',
       cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/50 dark:border-red-900'
+        : status === 'present' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
+        : status === 'absent' ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
         : common ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900'
         : mine ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800'
         : 'bg-card border-border',
       changed && !cancelled && 'ring-1 ring-indigo-400 dark:ring-indigo-500')}>
-      {changed && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+      <span className="absolute top-0.5 right-0.5 flex gap-0.5">
+        {hasNote && <StickyNote size={9} className="text-amber-500" />}
+        {changed && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+      </span>
       <p className={cn('font-semibold truncate',
         cancelled ? 'text-red-600 line-through' : common ? 'text-amber-700 dark:text-amber-400' : 'text-foreground')}>
         {common ? course.course_name : course.course_code}
       </p>
       {course.end_time && <p className="text-muted-foreground">{course.end_time}</p>}
       {course.room && <p className="text-muted-foreground truncate">Class {course.room}</p>}
-    </div>
+    </button>
   )
 }
 
@@ -265,12 +351,17 @@ function DayView({ weekDates, byDate, todayISO, selectedDate, setSelectedDate, s
 }
 
 function DayRow({ course, mine }: { course: Course; mine: boolean }) {
+  const { att, notes, onOpen } = useContext(DetailCtx)
   const cancelled = course.is_cancelled
   const common = course.is_common
   const changed = recentlyChanged(course)
+  const status = att[course.id]
+  const hasNote = !!notes[course.id]
   return (
-    <div className={cn('flex gap-3 items-center rounded-xl border p-3',
+    <button onClick={() => onOpen(course)} className={cn('w-full text-left flex gap-3 items-center rounded-xl border p-3',
       cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-900'
+        : status === 'present' ? 'bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-800'
+        : status === 'absent' ? 'bg-red-50 border-red-300 dark:bg-red-950/30 dark:border-red-800'
         : common ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900'
         : 'bg-card border-border',
       changed && !cancelled && 'ring-1 ring-indigo-300 dark:ring-indigo-700')}>
@@ -289,6 +380,8 @@ function DayRow({ course, mine }: { course: Course; mine: boolean }) {
               {mine && <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1 rounded">MINE</span>}
             </>
           )}
+          {status && <span className={cn('text-[9px] font-bold px-1 py-0.5 rounded', status === 'present' ? 'text-green-700 bg-green-100 dark:bg-green-900 dark:text-green-300' : 'text-red-700 bg-red-100 dark:bg-red-900 dark:text-red-300')}>{status === 'present' ? 'PRESENT' : 'ABSENT'}</span>}
+          {hasNote && <span className="text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded flex items-center gap-0.5"><StickyNote size={8} /> REM</span>}
           {cancelled && <span className="text-[10px] font-bold text-red-600 bg-red-100 dark:bg-red-900 px-1 py-0.5 rounded flex items-center gap-1"><AlertTriangle size={8} /> CANCELLED</span>}
           {changed && !cancelled && <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900 px-1 py-0.5 rounded">{CHANGE_LABEL[course.change_kind ?? ''] ?? 'Changed'}</span>}
         </div>
@@ -299,6 +392,6 @@ function DayRow({ course, mine }: { course: Course; mine: boolean }) {
         </div>
         {changed && course.change_note && <p className="mt-0.5 text-[11px] text-indigo-700 dark:text-indigo-300">↻ {course.change_note}</p>}
       </div>
-    </div>
+    </button>
   )
 }

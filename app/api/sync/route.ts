@@ -118,9 +118,11 @@ export async function POST(req: NextRequest) {
     // Cancellation state (is_cancelled) is persisted precisely per-row via the upsert
     // above — derived from each cell's colour/strikethrough in the diff.
 
-    // Notify users of changes, then push updated schedules to connected Google Calendars
+    // Notify users of changes, then push updated schedules to connected Google Calendars.
+    // Skip notifications on a full baseline (no previous snapshot) — otherwise a rebaseline
+    // would alert every enrolled user about every session as "new".
     if (diff.changes.length > 0) {
-      await notifyAffectedUsers(diff.changes)
+      if (previousSnapshot) await notifyAffectedUsers(diff.changes)
 
       const { data: connected } = await supabase.from('user_calendar_tokens').select('user_id')
       const connectedIds = (connected ?? []).map((c: { user_id: string }) => c.user_id)
