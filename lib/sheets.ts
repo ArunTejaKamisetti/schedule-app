@@ -51,10 +51,21 @@ export function getBaseAbbr(code: string): string {
 // e.g. "RTM" in the schedule == "RM" (Retail Management) in Course Details.
 export const ABBR_ALIAS: Record<string, string> = { RTM: 'RM' }
 
-// The abbreviation to use when looking a course up in the Course Details map.
+// Normalise an abbreviation for cross-sheet matching: uppercase, collapse spaces,
+// and tighten brackets so "PF (FIN-Core)" and "PF(FIN-Core)" become the same key.
+function normAbbr(s: string): string {
+  return (s || '').toUpperCase().replace(/\s+/g, ' ').replace(/\s*\(\s*/g, '(').replace(/\s*\)\s*/g, ')').trim()
+}
+
+// The (normalised) key to look a course up by in the Course Details map.
+// Strips the -A/-B/-C section marker but keeps the programme qualifier, and applies
+// known cross-sheet aliases — so "DS-A (LSM-Core)" → "DS(LSM-CORE)", "CV (FIN-Core)" →
+// "CV(FIN-CORE)", "GT-B" → "GT", "RTM" → "RM".
 export function getDetailAbbr(code: string): string {
-  const base = getBaseAbbr(code)
-  return ABBR_ALIAS[base] ?? base
+  let key = normAbbr(code).replace(/-[A-C](?=\(|$)/g, '')
+  const base = key.split('(')[0]
+  if (ABBR_ALIAS[base]) key = ABBR_ALIAS[base] + key.slice(base.length)
+  return key
 }
 
 export function getArea(code: string): string {
@@ -97,7 +108,7 @@ export function parseCourseDetails(rows: string[][]): Map<string, CourseDetail> 
     const abbr = getCell(row, abbrCol).trim()
     const name = getCell(row, nameCol).trim()
     if (!abbr || !name) continue
-    map.set(abbr, {
+    map.set(normAbbr(abbr), {
       name,
       credits: getCell(row, creditsCol).trim(),
       faculty: getCell(row, facultyCol).trim(),
