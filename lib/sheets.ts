@@ -46,6 +46,17 @@ export function getBaseAbbr(code: string): string {
   return code
 }
 
+// Schedule (Sheet 1) abbreviation → Course Details (Sheet 2) abbreviation, where the
+// two sheets disagree. We keep the Sheet-1 code for display but enrich from the Sheet-2 row.
+// e.g. "RTM" in the schedule == "RM" (Retail Management) in Course Details.
+export const ABBR_ALIAS: Record<string, string> = { RTM: 'RM' }
+
+// The abbreviation to use when looking a course up in the Course Details map.
+export function getDetailAbbr(code: string): string {
+  const base = getBaseAbbr(code)
+  return ABBR_ALIAS[base] ?? base
+}
+
 export function getArea(code: string): string {
   const base = getBaseAbbr(code)
   if (AREA_MAP[base]) return AREA_MAP[base]

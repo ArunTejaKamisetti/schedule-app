@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getBaseAbbr, getArea } from '@/lib/sheets'
+import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { notifyAffectedUsers } from '@/lib/notify'
 import { syncGoogleCalendarForUsers } from '@/lib/gcal'
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       // across multiple weeks in the sheet should be stored as one record.
       // Enrich each row with full name, faculty, credits, area from Course Details tab
       const enrichedRows = rows.map((r) => {
-        const base = getBaseAbbr(r.course_code)
+        const base = getDetailAbbr(r.course_code)
         const detail = detailsMap.get(base)
         return {
           ...r,
