@@ -168,7 +168,7 @@ function Cell({ course, state }: { course?: Course; state: CellState }) {
 export default function ComparePage() {
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
+      <div className="shrink-0 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
         <Link href="/friends" className="flex items-center gap-1.5 text-sm text-indigo-600 dark:text-indigo-400 mb-2">
           <ArrowLeft size={16} /> Friends
         </Link>
@@ -177,9 +177,11 @@ export default function ComparePage() {
           <h1 className="text-xl font-bold text-foreground">Compare (by date)</h1>
         </div>
       </div>
-      <Suspense fallback={<div className="px-4 py-6 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>}>
-        <CompareContent />
-      </Suspense>
+      <div className="flex-1 min-h-0">
+        <Suspense fallback={<div className="px-4 py-6 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>}>
+          <CompareContent />
+        </Suspense>
+      </div>
     </div>
   )
 }

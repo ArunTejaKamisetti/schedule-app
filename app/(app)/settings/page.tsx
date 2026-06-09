@@ -312,8 +312,8 @@ export default function SettingsPage() {
           </Button>
         </Section>
 
-        {/* Profile code — share with friends AND use to import on another device */}
-        <Section title="Your Profile Code">
+        {/* Friends code — public */}
+        <Section title="Friends Code">
           <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 rounded-xl px-4 py-3">
             <span className="text-2xl font-mono font-bold tracking-widest text-indigo-900 dark:text-indigo-100 flex-1">
               {shareCode || '——————'}
@@ -322,8 +322,21 @@ export default function SettingsPage() {
               {copied === 'share' ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-indigo-500" />}
             </button>
           </div>
+          <p className="text-xs text-muted-foreground mt-1">Share with friends so they can add you (public).</p>
+        </Section>
+
+        {/* Profile code — PRIVATE, used to import your profile on another device */}
+        <Section title="Profile Code (private)">
+          <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
+            <span className="text-2xl font-mono font-bold tracking-widest text-amber-900 dark:text-amber-100 flex-1">
+              {user?.import_code || '——————'}
+            </span>
+            <button onClick={() => copy(user?.import_code ?? '', 'import', 'Code copied!')} className="p-2 rounded-lg bg-card border border-amber-200 dark:border-amber-800">
+              {copied === 'import' ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-amber-600" />}
+            </button>
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
-            On a new device: open <b className="text-foreground">Courses → Import</b> and type this code to load your whole profile. Also used to add you as a friend. Keep it private.
+            <b className="text-amber-600 dark:text-amber-400">Keep private.</b> On a new device: <b className="text-foreground">Courses → Import</b> → type this to load your whole profile.
           </p>
         </Section>
 

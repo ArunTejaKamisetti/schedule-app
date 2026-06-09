@@ -24,6 +24,7 @@ export interface Course {
 export interface User {
   id: string
   share_code: string
+  import_code?: string
   display_name: string | null
   push_subscription: PushSubscriptionJSON | null
   notify_push: boolean

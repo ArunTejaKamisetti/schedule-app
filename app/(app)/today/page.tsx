@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -41,6 +41,7 @@ export default function TodayPage() {
   const [mySessions, setMySessions] = useState<Course[]>([])
   const [commonEvents, setCommonEvents] = useState<Course[]>([])
   const [attendance, setAttendance] = useState<Record<string, string>>({})
+  const [noteMap, setNoteMap] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const railRef = useRef<HTMLDivElement>(null)
 
@@ -77,13 +78,15 @@ export default function TodayPage() {
       fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
       fetch(`/api/courses?common=1`).then((r) => r.json()),
       fetch(`/api/attendance?userId=${userId}`).then((r) => r.json()),
+      fetch(`/api/notes?userId=${userId}`).then((r) => r.json()),
     ])
-      .then(([userRows, common, att]: [{ courses: Course }[], Course[], { course_id: string; status: string }[]]) => {
+      .then(([userRows, common, att, notes]: [{ courses: Course }[], Course[], { course_id: string; status: string }[], { course_id: string; body: string }[]]) => {
         setMySessions((userRows ?? []).map((d) => d.courses).filter(Boolean))
         setCommonEvents(Array.isArray(common) ? common : [])
         const map: Record<string, string> = {}
         for (const a of att ?? []) map[a.course_id] = a.status
         setAttendance(map)
+        setNoteMap(Object.fromEntries((notes ?? []).map((n) => [n.course_id, n.body])))
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -186,7 +189,7 @@ export default function TodayPage() {
         ) : (
           <div className="space-y-2.5">
             {allForDate.map((course) => (
-              <ClassCard key={course.id} course={course} status={attendance[course.id]} onMark={markAttendance} />
+              <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} />
             ))}
           </div>
         )}
@@ -195,9 +198,10 @@ export default function TodayPage() {
   )
 }
 
-function ClassCard({ course, status, onMark }: {
+function ClassCard({ course, status, note, onMark }: {
   course: Course
   status?: string
+  note?: string
   onMark: (courseId: string, status: 'present' | 'absent' | null) => void
 }) {
   const cancelled = course.is_cancelled
@@ -255,22 +259,35 @@ function ClassCard({ course, status, onMark }: {
         <p className="mt-1.5 text-[11px] text-indigo-700 dark:text-indigo-300">↻ {course.change_note}</p>
       )}
 
-      {/* Attendance — only for real classes, not exams/cancelled */}
+      {/* Reminder note */}
+      {!common && note && (
+        <div className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 rounded-lg px-2 py-1.5">
+          <StickyNote size={12} className="mt-px shrink-0" /> <span>{note}</span>
+        </div>
+      )}
+
+      {/* Attendance — cool segmented toggle */}
       {!common && !cancelled && (
-        <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2">
-          <span className="text-[11px] text-muted-foreground mr-auto">Attendance</span>
-          <button
-            onClick={() => onMark(course.id, status === 'present' ? null : 'present')}
-            className={cn('flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
-              status === 'present' ? 'bg-green-500 border-green-500 text-white' : 'border-green-300 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950')}>
-            <Check size={12} /> Present
-          </button>
-          <button
-            onClick={() => onMark(course.id, status === 'absent' ? null : 'absent')}
-            className={cn('flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
-              status === 'absent' ? 'bg-red-500 border-red-500 text-white' : 'border-red-300 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950')}>
-            <X size={12} /> Absent
-          </button>
+        <div className="mt-2.5 flex items-center gap-2.5 border-t border-border pt-2.5">
+          <span className="text-[11px] font-medium text-muted-foreground mr-auto">
+            {status === 'present' ? '✓ Marked present' : status === 'absent' ? '✗ Marked absent' : 'Mark attendance'}
+          </span>
+          <div className="flex items-center rounded-full bg-muted p-0.5">
+            <button
+              onClick={() => onMark(course.id, status === 'present' ? null : 'present')}
+              aria-label="Present"
+              className={cn('flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-all',
+                status === 'present' ? 'bg-green-500 text-white shadow-sm scale-105' : 'text-green-700 dark:text-green-400')}>
+              <Check size={14} strokeWidth={3} /> P
+            </button>
+            <button
+              onClick={() => onMark(course.id, status === 'absent' ? null : 'absent')}
+              aria-label="Absent"
+              className={cn('flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-all',
+                status === 'absent' ? 'bg-red-500 text-white shadow-sm scale-105' : 'text-red-600 dark:text-red-400')}>
+              <X size={14} strokeWidth={3} /> A
+            </button>
+          </div>
         </div>
       )}
     </div>

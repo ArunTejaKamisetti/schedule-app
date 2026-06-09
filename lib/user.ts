@@ -42,7 +42,7 @@ export async function getOrCreateUser(userId: string): Promise<User> {
 
   const { data: newUser, error } = await supabase
     .from('users')
-    .insert({ id: userId, share_code: shareCode })
+    .insert({ id: userId, share_code: shareCode, import_code: generateShareCode() })
     .select()
     .single()
 
@@ -56,6 +56,17 @@ export async function getUserByShareCode(shareCode: string): Promise<User | null
     .from('users')
     .select('*')
     .eq('share_code', shareCode.toUpperCase())
+    .single()
+  return data as User | null
+}
+
+// Private code used only to import/restore a profile on another device.
+export async function getUserByImportCode(importCode: string): Promise<User | null> {
+  const supabase = createServiceClient()
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('import_code', importCode.toUpperCase())
     .single()
   return data as User | null
 }

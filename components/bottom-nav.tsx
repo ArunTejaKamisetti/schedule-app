@@ -16,9 +16,9 @@ const NAV = [
 ]
 
 const MOBILE_NAV = [
+  { href: '/today', icon: CalendarDays, label: 'Home' },
+  { href: '/schedule', icon: CalendarRange, label: 'Schedule' },
   { href: '/courses', icon: BookOpen, label: 'Courses' },
-  { href: '/today', icon: CalendarDays, label: 'Today' },
-  { href: '/schedule', icon: CalendarRange, label: 'Week' },
   { href: '/friends', icon: Users, label: 'Friends' },
   { href: '/notifications', icon: Bell, label: 'Alerts' },
   { href: '/settings', icon: Settings, label: 'Settings' },
