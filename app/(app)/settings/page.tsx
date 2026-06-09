@@ -318,7 +318,7 @@ export default function SettingsPage() {
             <span className="text-2xl font-mono font-bold tracking-widest text-indigo-900 dark:text-indigo-100 flex-1">
               {shareCode || '——————'}
             </span>
-            <button onClick={() => copy(shareCode, 'share', 'Code copied!')} className="p-2 rounded-lg bg-card border border-indigo-200 dark:border-indigo-800">
+            <button onClick={() => copy(shareCode, 'share', 'Code copied!')} title="Copy your Friends Code" className="p-2 rounded-lg bg-card border border-indigo-200 dark:border-indigo-800">
               {copied === 'share' ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-indigo-500" />}
             </button>
           </div>
@@ -331,7 +331,7 @@ export default function SettingsPage() {
             <span className="text-2xl font-mono font-bold tracking-widest text-amber-900 dark:text-amber-100 flex-1">
               {user?.import_code || '——————'}
             </span>
-            <button onClick={() => copy(user?.import_code ?? '', 'import', 'Code copied!')} className="p-2 rounded-lg bg-card border border-amber-200 dark:border-amber-800">
+            <button onClick={() => copy(user?.import_code ?? '', 'import', 'Code copied!')} title="Copy your private Profile Code" className="p-2 rounded-lg bg-card border border-amber-200 dark:border-amber-800">
               {copied === 'import' ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-amber-600" />}
             </button>
           </div>
@@ -392,7 +392,7 @@ function CopyField({ value, copied, onCopy, icon }: { value: string; copied: boo
     <div className="flex items-center gap-2 bg-muted border border-border rounded-lg px-3 py-2">
       {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
       <span className="text-xs font-mono text-foreground truncate flex-1">{value}</span>
-      <button onClick={onCopy} className="shrink-0 p-1.5 rounded-md bg-card border border-border">
+      <button onClick={onCopy} title="Copy to clipboard" className="shrink-0 p-1.5 rounded-md bg-card border border-border">
         {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} className="text-muted-foreground" />}
       </button>
     </div>

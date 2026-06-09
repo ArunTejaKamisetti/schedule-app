@@ -109,7 +109,7 @@ export default function FriendsPage() {
               className="font-mono tracking-wider text-sm"
               onKeyDown={(e) => e.key === 'Enter' && addFriend()}
             />
-            <Button onClick={addFriend} disabled={!addCode.trim() || adding} size="sm">
+            <Button onClick={addFriend} disabled={!addCode.trim() || adding} size="sm" title="Add friend by their Friends Code">
               <UserPlus size={16} />
             </Button>
           </div>

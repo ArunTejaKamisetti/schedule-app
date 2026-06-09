@@ -133,22 +133,21 @@ export default function NotificationsPage() {
           </div>
           <div className="flex items-center gap-1">
             {unread > 0 && (
-              <Button variant="ghost" size="sm" onClick={markAllRead} className="text-xs text-muted-foreground gap-1">
+              <Button variant="ghost" size="sm" onClick={markAllRead} title="Mark all as read" className="text-xs text-muted-foreground gap-1">
                 <CheckCheck size={14} /> Read all
               </Button>
             )}
             {notifications.length > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearAll} className="text-xs text-red-500 gap-1">
+              <Button variant="ghost" size="sm" onClick={clearAll} title="Delete all alerts" className="text-xs text-red-500 gap-1">
                 <Trash2 size={14} /> Clear
               </Button>
             )}
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-1">
-          Changes are highlighted:
-          <span className="text-red-500 font-medium"> Red = cancelled</span>,
-          <span className="text-green-600 font-medium"> Green = rescheduled</span>,
-          <span className="text-orange-500 font-medium"> Orange = room change</span>
+        <p className="text-xs text-muted-foreground mt-1">
+          <span className="text-red-500 font-medium">Red = cancelled</span> ·
+          <span className="text-green-600 font-medium"> Green = added</span> ·
+          <span className="text-indigo-500 font-medium"> Indigo = moved / updated</span> · tap to read, ✕ to dismiss
         </p>
       </div>
 
@@ -189,7 +188,7 @@ function NotificationCard({ notification: n, onRead, onDelete }: { notification:
       )}
     >
       {/* Clickable area marks as read */}
-      <button onClick={onRead} className="absolute inset-0" aria-label="Mark read" />
+      <button onClick={onRead} className="absolute inset-0" aria-label="Mark read" title="Tap to mark as read" />
 
       <div className={cn('shrink-0 w-8 h-8 rounded-full flex items-center justify-center z-10', cfg.badgeBg)}>
         {cfg.icon}
@@ -214,7 +213,7 @@ function NotificationCard({ notification: n, onRead, onDelete }: { notification:
       <button
         onClick={onDelete}
         className="absolute top-2 right-2 z-20 p-1 rounded-md text-gray-400 hover:text-red-500 hover:bg-white/60"
-        aria-label="Delete"
+        aria-label="Delete" title="Dismiss this alert"
       >
         <X size={14} />
       </button>

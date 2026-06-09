@@ -132,7 +132,7 @@ export default function SchedulePage() {
             <h1 className="text-xl font-bold text-foreground">Schedule</h1>
           </div>
           <button
-            onClick={openSheet}
+            onClick={openSheet} title="Open the official Google Sheet to cross-check"
             className="flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 px-2.5 py-1.5 rounded-lg"
           >
             <SheetIcon size={13} /> Sheet
@@ -141,11 +141,11 @@ export default function SchedulePage() {
 
         {/* Week navigation */}
         <div className="mt-3 flex items-center gap-2">
-          <button onClick={() => shiftWeek(-1)} className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronLeft size={16} /></button>
-          <button onClick={() => setWeekStart(mondayISO(new Date()))} className="text-sm font-semibold text-foreground flex-1 text-center">
+          <button onClick={() => shiftWeek(-1)} title="Previous week" className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronLeft size={16} /></button>
+          <button onClick={() => setWeekStart(mondayISO(new Date()))} title="Back to this week" className="text-sm font-semibold text-foreground flex-1 text-center">
             {monthLabel}
           </button>
-          <button onClick={() => shiftWeek(1)} className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronRight size={16} /></button>
+          <button onClick={() => shiftWeek(1)} title="Next week" className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronRight size={16} /></button>
         </div>
 
         <div className="mt-2 flex items-center gap-2">
@@ -154,6 +154,7 @@ export default function SchedulePage() {
               <button
                 key={v}
                 onClick={() => setView(v)}
+                title={v === 'week' ? 'Week grid view' : 'Single-day list view'}
                 className={cn('px-3 py-1 text-xs font-semibold rounded-md capitalize transition-colors',
                   view === v ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}
               >{v}</button>
@@ -290,7 +291,7 @@ function Block({ course, mine }: { course: Course; mine: boolean }) {
   const status = att[course.id]
   const hasNote = !!notes[course.id]
   return (
-    <button onClick={() => onOpen(course)} className={cn('relative w-full text-left rounded-md px-1.5 py-1 text-[10px] leading-tight border',
+    <button onClick={() => onOpen(course)} title="Details · attendance · reminder note" className={cn('relative w-full text-left rounded-md px-1.5 py-1 text-[10px] leading-tight border',
       cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/50 dark:border-red-900'
         : status === 'present' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
         : status === 'absent' ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
@@ -358,7 +359,7 @@ function DayRow({ course, mine }: { course: Course; mine: boolean }) {
   const status = att[course.id]
   const hasNote = !!notes[course.id]
   return (
-    <button onClick={() => onOpen(course)} className={cn('w-full text-left flex gap-3 items-center rounded-xl border p-3',
+    <button onClick={() => onOpen(course)} title="Tap for details, attendance & reminder note" className={cn('w-full text-left flex gap-3 items-center rounded-xl border p-3',
       cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-900'
         : status === 'present' ? 'bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-800'
         : status === 'absent' ? 'bg-red-50 border-red-300 dark:bg-red-950/30 dark:border-red-800'

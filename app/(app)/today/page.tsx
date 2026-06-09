@@ -165,7 +165,7 @@ export default function TodayPage() {
               <DownloadCloud size={15} /> Import
             </button>
             {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
-              <button onClick={jumpToday}
+              <button onClick={jumpToday} title="Jump back to today"
                 className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg">
                 <CalendarCheck size={14} /> Today
               </button>
@@ -185,8 +185,8 @@ export default function TodayPage() {
 
         {/* Tabs: Courses · Mess · Bus */}
         <div className="mt-3 flex gap-1 bg-muted rounded-xl p-0.5">
-          {([['courses', 'Courses', BookOpen], ['mess', 'Mess', UtensilsCrossed], ['bus', 'Bus', Bus]] as const).map(([id, label, Icon]) => (
-            <button key={id} onClick={() => setTab(id)}
+          {([['courses', 'Courses', BookOpen, 'Your classes for the selected day'], ['mess', 'Mess', UtensilsCrossed, 'Mess menu for this weekday'], ['bus', 'Bus', Bus, 'Campus bus timings (same every day)']] as const).map(([id, label, Icon, tip]) => (
+            <button key={id} onClick={() => setTab(id)} title={tip}
               className={cn('flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-sm font-semibold transition-colors',
                 tab === id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}>
               <Icon size={15} /> {label}
@@ -351,14 +351,14 @@ function ClassCard({ course, status, note, onMark }: {
           <div className="flex items-center rounded-full bg-muted p-0.5">
             <button
               onClick={() => onMark(course.id, status === 'present' ? null : 'present')}
-              aria-label="Present"
+              aria-label="Present" title="Mark present (tap again to clear)"
               className={cn('flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-all',
                 status === 'present' ? 'bg-green-500 text-white shadow-sm scale-105' : 'text-green-700 dark:text-green-400')}>
               <Check size={14} strokeWidth={3} /> P
             </button>
             <button
               onClick={() => onMark(course.id, status === 'absent' ? null : 'absent')}
-              aria-label="Absent"
+              aria-label="Absent" title="Mark absent (tap again to clear)"
               className={cn('flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-all',
                 status === 'absent' ? 'bg-red-500 text-white shadow-sm scale-105' : 'text-red-600 dark:text-red-400')}>
               <X size={14} strokeWidth={3} /> A
@@ -370,23 +370,45 @@ function ClassCard({ course, status, note, onMark }: {
   )
 }
 
-// ─── New-user onboarding ──────────────────────────────────────────────────────
+// ─── New-user onboarding (cool branded landing) ───────────────────────────────
 function Onboarding() {
+  const features = [
+    { icon: GraduationCap, label: 'Classes' },
+    { icon: Check, label: 'Attendance' },
+    { icon: UtensilsCrossed, label: 'Mess' },
+    { icon: Bus, label: 'Bus' },
+  ]
   return (
-    <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/50 dark:to-violet-950/40 p-5 text-center">
-      <div className="text-4xl">👋</div>
-      <h2 className="mt-2 text-lg font-bold text-foreground">Welcome to KampusSchedule!</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Add your courses to see your daily classes, track attendance, set reminders, and compare with friends.
-      </p>
-      <ol className="mt-3 text-left text-xs text-muted-foreground max-w-xs mx-auto space-y-1.5">
-        <li><b className="text-foreground">1.</b> Go to <b className="text-foreground">Courses</b> and pick your electives.</li>
-        <li><b className="text-foreground">2.</b> Come back here — your day shows up on <b className="text-foreground">Home</b>.</li>
-        <li><b className="text-foreground">3.</b> Check the <b className="text-foreground">Mess</b> &amp; <b className="text-foreground">Bus</b> tabs above too.</li>
-      </ol>
-      <a href="/courses" className="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl">
-        <BookOpen size={16} /> Add your courses
-      </a>
+    <div className="rounded-3xl overflow-hidden border border-indigo-200 dark:border-indigo-800 shadow-sm">
+      {/* Hero */}
+      <div className="relative bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 px-5 pt-7 pb-6 text-center text-white">
+        <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent" />
+        <div className="relative inline-flex flex-col items-center justify-center w-16 h-16 rounded-2xl bg-white/15 backdrop-blur ring-1 ring-white/30">
+          <span className="text-lg font-extrabold leading-none">IIMK</span>
+          <span className="text-[9px] font-bold tracking-[0.2em] text-amber-200 leading-none mt-0.5">— S —</span>
+        </div>
+        <h2 className="relative mt-3 text-xl font-extrabold">Welcome to KampusSchedule</h2>
+        <p className="relative mt-1 text-sm text-white/85">Your IIM-K campus, organised — schedule, attendance, mess, bus &amp; friends.</p>
+      </div>
+      {/* Body */}
+      <div className="bg-card px-5 py-4">
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {features.map(({ icon: Icon, label }) => (
+            <div key={label} className="flex flex-col items-center gap-1 rounded-xl bg-muted/60 py-2.5">
+              <Icon size={18} className="text-indigo-600 dark:text-indigo-400" />
+              <span className="text-[10px] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+        <ol className="text-left text-xs text-muted-foreground space-y-1.5 mb-4">
+          <li><b className="text-foreground">1.</b> Open <b className="text-foreground">Courses</b> → pick your electives.</li>
+          <li><b className="text-foreground">2.</b> Your day appears here on <b className="text-foreground">Home</b> — mark attendance, add reminders.</li>
+          <li><b className="text-foreground">3.</b> Already set up elsewhere? Tap <b className="text-foreground">Import</b> (top-right) with your profile code.</li>
+        </ol>
+        <a href="/courses" className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-5 py-3 rounded-xl">
+          <BookOpen size={16} /> Add your courses
+        </a>
+      </div>
     </div>
   )
 }

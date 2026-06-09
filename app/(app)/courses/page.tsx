@@ -178,7 +178,7 @@ export default function CoursesPage() {
               <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
             )
           ) : (
-            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
+            <button onClick={() => setEditing(true)} title="Add or remove your courses" className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
               <Pencil size={14} /> Edit
             </button>
           )}
@@ -212,7 +212,7 @@ export default function CoursesPage() {
             const selectedInArea = groups.filter((g) => selectedCodes.has(g.code)).length
             return (
               <Collapsible key={area} open={open} onOpenChange={() => !searching && toggleArea(area)}>
-                <CollapsibleTrigger className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted transition-colors">
+                <CollapsibleTrigger title={`Show/hide ${area} courses`} className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted transition-colors">
                   <span className="text-sm font-bold text-foreground">{area}</span>
                   <span className="text-xs text-muted-foreground">({groups.length})</span>
                   {selectedInArea > 0 && (
@@ -306,6 +306,7 @@ function CourseCard({
           <button
             onClick={() => !pending && onToggle(!selected)}
             disabled={pending}
+            title={selected ? 'Remove from my courses' : 'Add to my courses'}
             className={cn(
               'shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all',
               selected ? 'bg-indigo-600 text-white shadow-sm' : 'border-2 border-border text-muted-foreground hover:border-indigo-400 hover:text-indigo-500',
