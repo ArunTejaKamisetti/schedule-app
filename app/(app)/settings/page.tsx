@@ -369,6 +369,10 @@ export default function SettingsPage() {
             <p className="font-mono text-[10px] opacity-60 pt-1">User ID: {userId?.slice(0, 8)}…</p>
           </div>
         </Section>
+
+        <p className="text-center text-[11px] text-muted-foreground/70 pt-1 pb-2">
+          © Developed by Arun Teja Kamisetti, IIM K
+        </p>
       </div>
     </div>
   )

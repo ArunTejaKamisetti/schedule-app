@@ -4,8 +4,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'Schedule Update', {
       body: data.body || '',
-      icon: data.icon || '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: data.icon || '/icon-192',
+      badge: '/icon-192',
       data: { url: data.url || '/' },
       requireInteraction: false,
     })

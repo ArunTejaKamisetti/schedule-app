@@ -166,6 +166,6 @@ export async function sendPush(
   initVapid()
   await webpush.sendNotification(
     sub as Parameters<typeof webpush.sendNotification>[0],
-    JSON.stringify({ title, body, icon: '/icon-192.png', url })
+    JSON.stringify({ title, body, icon: '/icon-192', url })
   )
 }

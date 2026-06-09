@@ -2,10 +2,14 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
+import { setSessionId, setSessionCode } from '@/lib/session'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
 import { BUS, BUS_NOTE, BUS_STOPS } from '@/lib/bus'
@@ -67,6 +71,28 @@ export default function TodayPage() {
   const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [tab, setTab] = useState<HomeTab>('courses')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importCode, setImportCode] = useState('')
+  const [importing, setImporting] = useState(false)
+
+  async function importProfile() {
+    const code = importCode.trim().toUpperCase()
+    if (!code) return
+    setImporting(true)
+    try {
+      const res = await fetch(`/api/user/resolve?code=${encodeURIComponent(code)}`)
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error ?? 'Invalid code'); return }
+      setSessionId(data.userId)
+      setSessionCode(data.shareCode)
+      toast.success('Profile imported — reloading…')
+      setTimeout(() => window.location.reload(), 600)
+    } catch {
+      toast.error('Could not import. Try again.')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   function scrollToDate(iso: string, smooth: boolean) {
     railRef.current?.querySelector(`[data-iso="${iso}"]`)?.scrollIntoView({
@@ -132,15 +158,29 @@ export default function TodayPage() {
             </h1>
             <p className="text-sm text-muted-foreground">{format(selDate, 'MMMM d, yyyy')}</p>
           </div>
-          {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
-            <button
-              onClick={jumpToday}
-              className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg"
-            >
-              <CalendarCheck size={14} /> Today
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportOpen((s) => !s)} title="Import profile"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <DownloadCloud size={15} /> Import
             </button>
-          )}
+            {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
+              <button onClick={jumpToday}
+                className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg">
+                <CalendarCheck size={14} /> Today
+              </button>
+            )}
+          </div>
         </div>
+
+        {importOpen && (
+          <div className="mt-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 p-3">
+            <p className="text-xs text-muted-foreground mb-2">Enter your <b className="text-foreground">profile code</b> (Settings → Profile Code on your other device) to load your courses, attendance & notes here.</p>
+            <div className="flex gap-2">
+              <Input value={importCode} onChange={(e) => setImportCode(e.target.value.toUpperCase())} placeholder="e.g. ZRKBWEE8" maxLength={8} className="font-mono tracking-wider text-sm" onKeyDown={(e) => e.key === 'Enter' && importProfile()} />
+              <Button onClick={importProfile} disabled={!importCode.trim() || importing} size="sm">Import</Button>
+            </div>
+          </div>
+        )}
 
         {/* Tabs: Courses · Mess · Bus */}
         <div className="mt-3 flex gap-1 bg-muted rounded-xl p-0.5">

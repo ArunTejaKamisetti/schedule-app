@@ -1,13 +1,11 @@
 'use client'
 
 import { useState, useEffect, useMemo, useTransition } from 'react'
-import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap, DownloadCloud } from 'lucide-react'
+import { Search, BookOpen, Plus, Check, AlertTriangle, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
-import { setSessionId, setSessionCode } from '@/lib/session'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -39,30 +37,8 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importCode, setImportCode] = useState('')
-  const [importingProfile, setImportingProfile] = useState(false)
   const [summary, setSummary] = useState<CourseStat[]>([])
   const [, startTransition] = useTransition()
-
-  async function importProfile() {
-    const code = importCode.trim().toUpperCase()
-    if (!code) return
-    setImportingProfile(true)
-    try {
-      const res = await fetch(`/api/user/resolve?code=${encodeURIComponent(code)}`)
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error ?? 'Invalid code'); return }
-      setSessionId(data.userId)
-      setSessionCode(data.shareCode)
-      toast.success('Profile imported — reloading…')
-      setTimeout(() => window.location.reload(), 600)
-    } catch {
-      toast.error('Could not import. Try again.')
-    } finally {
-      setImportingProfile(false)
-    }
-  }
 
   useEffect(() => {
     // Catalog = one representative row per course (complete, no 1000-row cap).
@@ -195,32 +171,18 @@ export default function CoursesPage() {
             <BookOpen className="text-indigo-600 dark:text-indigo-400" size={22} />
             <h1 className="text-xl font-bold text-foreground">{showPicker ? 'Pick Courses' : 'My Courses'}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setImportOpen((s) => !s)} title="Import profile" className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-              <DownloadCloud size={15} /> Import
-            </button>
-            {showPicker ? (
-              selectedGroups.length > 0 && editing ? (
-                <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
-              ) : (
-                <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
-              )
+          {showPicker ? (
+            selectedGroups.length > 0 && editing ? (
+              <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
             ) : (
-              <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
-                <Pencil size={14} /> Edit
-              </button>
-            )}
-          </div>
+              <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
+            )
+          ) : (
+            <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
+              <Pencil size={14} /> Edit
+            </button>
+          )}
         </div>
-        {importOpen && (
-          <div className="mb-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 p-3">
-            <p className="text-xs text-muted-foreground mb-2">Enter your <b className="text-foreground">profile code</b> (from Settings on your other device) to load all your courses here.</p>
-            <div className="flex gap-2">
-              <Input value={importCode} onChange={(e) => setImportCode(e.target.value.toUpperCase())} placeholder="e.g. AB12CD34" maxLength={8} className="font-mono tracking-wider text-sm" onKeyDown={(e) => e.key === 'Enter' && importProfile()} />
-              <Button onClick={importProfile} disabled={!importCode.trim() || importingProfile} size="sm">Import</Button>
-            </div>
-          </div>
-        )}
         {showPicker && (
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

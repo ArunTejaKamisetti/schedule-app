@@ -7,10 +7,10 @@ import { ThemeProvider } from '@/components/theme-provider'
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
-  title: 'My Schedule',
-  description: 'Your college elective schedule — pick courses, compare with friends, get change alerts.',
+  title: 'KampusSchedule',
+  description: 'Your IIM-K schedule, mess menu, bus timings, attendance & friends — in one place.',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'My Schedule' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'KampusSchedule' },
   formatDetection: { telephone: false },
 }
 

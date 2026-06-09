@@ -1,14 +1,14 @@
 {
-  "name": "My College Schedule",
-  "short_name": "Schedule",
-  "description": "Track your electives, compare with friends, get schedule change alerts",
+  "name": "KampusSchedule",
+  "short_name": "KampusSchedule",
+  "description": "Your IIM-K schedule, mess menu, bus timings, attendance & friends — in one place.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f9fafb",
+  "background_color": "#0f0f12",
   "theme_color": "#6366f1",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icon-192", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
