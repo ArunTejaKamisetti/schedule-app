@@ -353,10 +353,10 @@ function parseScheduleMatrix(rows: string[][], sectionHeaderIdx: number): Parsed
     // Regular classes require a time.
     if (!timeStr) continue
     if (skipPattern.test(dateStr) || skipPattern.test(timeStr)) continue
-    // Skip rows where col 2 is a merged banner (REGISTRATION, LUNCH BREAK)
-    if (row[2] && skipPattern.test(row[2])) continue
 
     for (const section of sections) {
+      // Skip filler cells (LUNCH BREAK, MEETING, …) per-column — never short-circuit the
+      // whole row, or a banner in the first division would drop real classes in the others.
       const courseCode = (row[section.col] || '').trim()
       if (!courseCode || skipPattern.test(courseCode)) continue
 
