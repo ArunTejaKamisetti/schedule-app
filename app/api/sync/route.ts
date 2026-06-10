@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea } from '@/lib/sheets'
+import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea, isYmhcVenue, cleanCode } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { notifyAffectedUsers } from '@/lib/notify'
 import { syncGoogleCalendarForUsers } from '@/lib/gcal'
@@ -36,6 +36,10 @@ export async function POST(req: NextRequest) {
     // Compute diff
     const diff = diffSheetData(previousSnapshot, newData)
 
+    // One timestamp for the whole sync: every current row is upserted with it, so any row
+    // left with an OLDER timestamp is stale (no longer in the sheet) and gets reconciled away.
+    const syncStartedAt = new Date().toISOString()
+
     // Upsert courses into DB
     if (diff.upserts.length > 0) {
       const rows = diff.upserts.map((c) => ({
@@ -53,7 +57,7 @@ export async function POST(req: NextRequest) {
         is_cancelled: c.is_cancelled ?? false,
         is_common: c.is_common,
         event_kind: c.event_kind,
-        last_synced_at: new Date().toISOString(),
+        last_synced_at: syncStartedAt,
       }))
 
       // Deduplicate by the unique key before upserting — same course/section/day/time
@@ -64,7 +68,9 @@ export async function POST(req: NextRequest) {
         const detail = detailsMap.get(base)
         return {
           ...r,
-          course_name: detail?.name || r.course_name,
+          // Keep the admin's venue label (cleaned of the embedded newline) for the
+          // YMHC-with-venue cell; everything else uses the full Course-Details name.
+          course_name: isYmhcVenue(r.course_code) ? cleanCode(r.course_code) : (detail?.name || r.course_name),
           instructor: detail?.faculty || r.instructor || null,
           credits: detail?.credits || r.credits || null,
           area: getArea(r.course_code),
@@ -87,53 +93,39 @@ export async function POST(req: NextRequest) {
         })
 
       if (upsertError) throw new Error(`Upsert failed: ${upsertError.message}`)
-    }
 
-    // Delete genuinely-removed sessions by their exact slot (NOT by course_code, which
-    // would wipe every dated session of that course).
-    for (const r of diff.removed) {
-      await supabase
-        .from('courses')
-        .delete()
-        .eq('course_code', r.course_code)
-        .eq('sheet_tab', r.sheet_tab)
-        .eq('session_date', r.session_date)
-        .eq('start_time', r.start_time)
+      // Reconcile: delete any course row the current sheet no longer produces. The per-slot
+      // diff misses these when a cell's CODE changes (e.g. MBGAI → MBGAI (LSM), or a section
+      // reshuffle) — the old row isn't a "removal", so it lingered and inflated counts
+      // (MBGAI showed 32 vs the real 24). Rows not touched by THIS sync are stale. Guarded by
+      // upserts.length > 0 so a transient empty/broken parse can never wipe the table.
+      await supabase.from('courses').delete().lt('last_synced_at', syncStartedAt)
     }
 
     // Persist "what changed" on each changed session for the daily-page highlight.
-    // Done as targeted UPDATEs (not in the upsert) so unchanged rows keep their prior
-    // change metadata until it naturally ages out of the highlight window.
+    // ONE batched upsert (partial columns → only these fields update; unchanged rows keep
+    // their prior change metadata). Replaces a per-row UPDATE loop that did ~one round-trip
+    // per change and slowed the function toward the 60s limit.
     const changedRows = diff.upserts.filter((c) => c.change_kind)
-    for (const c of changedRows) {
-      await supabase
-        .from('courses')
-        .update({ change_kind: c.change_kind, change_note: c.change_note ?? null, last_changed_at: new Date().toISOString() })
-        .eq('course_code', c.course_code)
-        .eq('sheet_tab', c.sheet_tab)
-        .eq('session_date', c.session_date)
-        .eq('start_time', c.start_time)
+    if (changedRows.length > 0) {
+      const nowIso = new Date().toISOString()
+      await supabase.from('courses').upsert(
+        changedRows.map((c) => ({
+          course_code: c.course_code,
+          sheet_tab: c.sheet_tab,
+          session_date: c.session_date || null,
+          start_time: c.start_time || null,
+          change_kind: c.change_kind,
+          change_note: c.change_note ?? null,
+          last_changed_at: nowIso,
+        })),
+        { onConflict: 'course_code,sheet_tab,session_date,start_time' }
+      )
     }
 
-    // Cancellation state (is_cancelled) is persisted precisely per-row via the upsert
-    // above — derived from each cell's colour/strikethrough in the diff.
-
-    // Notify users of changes, then push updated schedules to connected Google Calendars.
-    // Skip notifications on a full baseline (no previous snapshot) — otherwise a rebaseline
-    // would alert every enrolled user about every session as "new".
-    if (diff.changes.length > 0) {
-      if (previousSnapshot) await notifyAffectedUsers(diff.changes)
-
-      const { data: connected } = await supabase.from('user_calendar_tokens').select('user_id')
-      const connectedIds = (connected ?? []).map((c: { user_id: string }) => c.user_id)
-      if (connectedIds.length > 0) {
-        await syncGoogleCalendarForUsers(connectedIds).catch((e) =>
-          console.error('Google Calendar sync failed:', e)
-        )
-      }
-    }
-
-    // Save snapshot to sync_log
+    // Save the snapshot NOW — before the (slow, network-bound) notify + calendar steps — so a
+    // timeout in the tail can't stall forward progress. Otherwise the diff would never advance
+    // and every retry would re-run the heavy Google Calendar sync and time out again.
     await supabase.from('sync_log').insert({
       status: 'success',
       rows_added: diff.added.length,
@@ -147,10 +139,23 @@ export async function POST(req: NextRequest) {
       .from('sync_log')
       .select('id')
       .order('synced_at', { ascending: false })
-
     if (logs && logs.length > 5) {
-      const toDelete = logs.slice(5).map((l) => l.id)
-      await supabase.from('sync_log').delete().in('id', toDelete)
+      await supabase.from('sync_log').delete().in('id', logs.slice(5).map((l) => l.id))
+    }
+
+    // Best-effort, idempotent side-effects. Notifications are DB-deduped (migration 009) so a
+    // re-run never double-sends; the Google Calendar sync is network-heavy, so it runs last
+    // and never blocks the snapshot above. Skip on a full baseline (no previous snapshot).
+    if (diff.changes.length > 0 && previousSnapshot) {
+      await notifyAffectedUsers(diff.changes).catch((e) => console.error('notify failed:', e))
+
+      const { data: connected } = await supabase.from('user_calendar_tokens').select('user_id')
+      const connectedIds = (connected ?? []).map((c: { user_id: string }) => c.user_id)
+      if (connectedIds.length > 0) {
+        await syncGoogleCalendarForUsers(connectedIds).catch((e) =>
+          console.error('Google Calendar sync failed:', e)
+        )
+      }
     }
 
     return NextResponse.json({

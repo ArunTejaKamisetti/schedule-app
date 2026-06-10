@@ -36,6 +36,19 @@ export interface CourseDetail {
   faculty: string
 }
 
+// Collapse embedded newlines / whitespace runs in a raw sheet cell into a clean single-line
+// code — e.g. the admin's "YMHC\nMN Common Room" → "YMHC MN Common Room".
+export function cleanCode(code: string): string {
+  return (code || '').replace(/\s+/g, ' ').trim()
+}
+
+// One-off admin data issue: the venue was typed into YMHC's schedule cell
+// ("YMHC MN Common Room"). Treat it as the HLAM elective YMHC for enrichment/area, while the
+// caller keeps the admin's label as the display name.
+export function isYmhcVenue(code: string): boolean {
+  return /^YMHC\b/i.test(code) && /common\s*room/i.test(code)
+}
+
 // Strip section suffix and program qualifiers to get the base abbreviation
 // "GT-A" → "GT", "SOMA-B" → "SOMA", "FC (FIN)" → "FC", "ST (FIN-Core)" → "ST"
 export function getBaseAbbr(code: string): string {
@@ -62,6 +75,7 @@ function normAbbr(s: string): string {
 // known cross-sheet aliases — so "DS-A (LSM-Core)" → "DS(LSM-CORE)", "CV (FIN-Core)" →
 // "CV(FIN-CORE)", "GT-B" → "GT", "RTM" → "RM".
 export function getDetailAbbr(code: string): string {
+  if (isYmhcVenue(code)) return 'YMHC' // enrich from the Sheet-2 YMHC row
   let key = normAbbr(code).replace(/-[A-C](?=\(|$)/g, '')
   const base = key.split('(')[0]
   if (ABBR_ALIAS[base]) key = ABBR_ALIAS[base] + key.slice(base.length)
@@ -69,6 +83,7 @@ export function getDetailAbbr(code: string): string {
 }
 
 export function getArea(code: string): string {
+  if (isYmhcVenue(code)) return 'HLAM'
   // Programme qualifiers take priority (Sheet-2 truth) — a FIN/LSM-core course must land
   // under FIN/LSM Core even if its base abbreviation also exists as a PGP elective area.
   if (/\(FIN[-\s]?Core\)/i.test(code)) return 'FIN Core'
@@ -357,6 +372,9 @@ function parseScheduleMatrix(rows: string[][], sectionHeaderIdx: number): Parsed
     for (const section of sections) {
       // Skip filler cells (LUNCH BREAK, MEETING, …) per-column — never short-circuit the
       // whole row, or a banner in the first division would drop real classes in the others.
+      // Keep the raw code (trim only) so enrolment-by-code stays stable; display names are
+      // cleaned downstream (the one multi-line cell, "YMHC\nMN Common Room", renders fine
+      // because HTML collapses the newline).
       const courseCode = (row[section.col] || '').trim()
       if (!courseCode || skipPattern.test(courseCode)) continue
 

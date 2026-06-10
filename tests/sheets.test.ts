@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSheetRows, getArea, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
-  parseCourseDetails, AREA_MAP,
+  parseCourseDetails, AREA_MAP, cleanCode, isYmhcVenue,
 } from '@/lib/sheets'
 import { buildSheet } from './helpers'
 
@@ -163,6 +163,34 @@ describe('parseCourseDetails — Sheet-2 enrichment lookup', () => {
   })
   it('ignores blank rows', () => {
     expect(parseCourseDetails(sheet2).size).toBe(3)
+  })
+})
+
+describe('YMHC venue special-case (one-off admin data fix)', () => {
+  it('cleanCode collapses an embedded newline into one line', () => {
+    expect(cleanCode('YMHC\nMN Common Room')).toBe('YMHC MN Common Room')
+    expect(cleanCode('GT-A')).toBe('GT-A')
+    expect(cleanCode('  ST   (FIN-Core) ')).toBe('ST (FIN-Core)')
+  })
+  it('isYmhcVenue detects the venue-suffixed YMHC cell only', () => {
+    expect(isYmhcVenue('YMHC MN Common Room')).toBe(true)
+    expect(isYmhcVenue('YMHC\nMN Common Room')).toBe(true)
+    expect(isYmhcVenue('YMHC')).toBe(false)
+    expect(isYmhcVenue('GT-A')).toBe(false)
+  })
+  it('routes the venue cell (raw or clean) to YMHC details and HLAM', () => {
+    expect(getDetailAbbr('YMHC MN Common Room')).toBe('YMHC')   // enrich from Sheet-2 YMHC
+    expect(getDetailAbbr('YMHC\nMN Common Room')).toBe('YMHC')  // raw newline form too
+    expect(getArea('YMHC MN Common Room')).toBe('HLAM')
+    expect(getArea('YMHC\nMN Common Room')).toBe('HLAM')
+    expect(getArea('YMHC')).toBe('HLAM')                        // plain YMHC already HLAM
+  })
+  it('preserves the raw YMHC venue code (enrolment-stable) but cleans it for display', () => {
+    const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', '', '', '']])
+    const parsed = parseSheetRows(data.sheet1, 'Sheet1')[0]
+    expect(parsed.course_code).toBe('YMHC\nMN Common Room') // code unchanged → existing picks survive
+    expect(cleanCode(parsed.course_code)).toBe('YMHC MN Common Room') // display form
+    expect(isYmhcVenue(parsed.course_code)).toBe(true)     // still routes to YMHC details + HLAM
   })
 })
 
