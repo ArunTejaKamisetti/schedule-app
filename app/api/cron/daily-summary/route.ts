@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getUserSessions } from '@/lib/enrollment'
 import { sendPush } from '@/lib/notify'
 import type { Course, PushSubscriptionJSON } from '@/lib/types'
 
@@ -39,12 +40,8 @@ export async function POST(req: NextRequest) {
 
   let sent = 0
   for (const user of users) {
-    const { data: enrolled } = await supabase
-      .from('user_courses').select('courses(*)').eq('user_id', user.id)
-
-    const myToday = (enrolled ?? [])
-      .map((r: { courses: Course }) => r.courses)
-      .filter((c: Course | null): c is Course => !!c && c.session_date === today)
+    const myToday = (await getUserSessions(supabase, user.id))
+      .filter((c) => c.session_date === today)
 
     const all = [...myToday, ...((commonToday as Course[]) ?? [])]
       .sort((a, b) => (a.start_time ?? '').localeCompare(b.start_time ?? ''))

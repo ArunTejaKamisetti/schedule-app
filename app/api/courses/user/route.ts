@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getUserSessions } from '@/lib/enrollment'
 
-// GET /api/courses/user?userId=xxx  → list user's selected courses
+// GET /api/courses/user?userId=xxx  → every current session of the user's picked courses.
+// Resolved by course CODE (not frozen session ids), so classes added/moved/updated in the
+// sheet after the user picked show up here immediately. Shape kept as { course_id, courses }
+// for existing consumers (Home, Schedule, Courses).
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('userId')
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
   const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from('user_courses')
-    .select('course_id, added_at, courses(*)')
-    .eq('user_id', userId)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  const sessions = await getUserSessions(supabase, userId)
+  return NextResponse.json(sessions.map((c) => ({ course_id: c.id, added_at: null, courses: c })))
 }
 
 // POST /api/courses/user  → add or remove a whole course (all its dated sessions)

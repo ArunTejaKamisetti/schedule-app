@@ -37,6 +37,9 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [picking, setPicking] = useState(false) // first-time picker, stays open until "Done"
+  const [userLoaded, setUserLoaded] = useState(false)
+  const [decided, setDecided] = useState(false)
   const [summary, setSummary] = useState<CourseStat[]>([])
   const [, startTransition] = useTransition()
 
@@ -57,9 +60,19 @@ export default function CoursesPage() {
       .then((r) => r.json())
       .then((data: { courses: Course }[]) => {
         setSelectedCodes(new Set(data.map((d) => d.courses?.course_code).filter(Boolean)))
+        setUserLoaded(true)
       })
-      .catch(console.error)
+      .catch(() => setUserLoaded(true))
   }, [userId])
+
+  // Decide the initial view ONCE, after the user's existing picks are known: a brand-new
+  // user (no picks) opens straight into the picker and stays there until they tap "Done"
+  // — adding the first course must NOT bounce them out to the static list.
+  useEffect(() => {
+    if (decided || loading || !userLoaded) return
+    setPicking(selectedCodes.size === 0)
+    setDecided(true)
+  }, [decided, loading, userLoaded, selectedCodes])
 
   // Attendance stats for the static "My Courses" view (refreshed when leaving edit mode).
   useEffect(() => {
@@ -160,8 +173,10 @@ export default function CoursesPage() {
     [courseGroups, selectedCodes]
   )
 
-  // Once a user has picks, show them as a static list with an Edit button.
-  const showPicker = editing || (!loading && selectedGroups.length === 0)
+  function finishPicking() { setEditing(false); setPicking(false) }
+
+  // Show the picker while editing or during first-time picking; otherwise the static list.
+  const showPicker = editing || picking
 
   return (
     <div className="flex flex-col h-full">
@@ -172,8 +187,8 @@ export default function CoursesPage() {
             <h1 className="text-xl font-bold text-foreground">{showPicker ? 'Pick Courses' : 'My Courses'}</h1>
           </div>
           {showPicker ? (
-            selectedGroups.length > 0 && editing ? (
-              <button onClick={() => setEditing(false)} className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
+            selectedGroups.length > 0 ? (
+              <button onClick={finishPicking} title="Save and view my courses" className="text-sm font-semibold text-white bg-indigo-600 px-3.5 py-1.5 rounded-lg">Done</button>
             ) : (
               <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
             )

@@ -1,5 +1,6 @@
 import { google, calendar_v3 } from 'googleapis'
 import { createServiceClient } from './supabase/server'
+import { getUserSessions } from './enrollment'
 import type { Course } from './types'
 
 export const GCAL_SCOPES = ['https://www.googleapis.com/auth/calendar.events']
@@ -92,13 +93,12 @@ export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
   // so the connect flow can show the real reason instead of silently doing nothing.
   await calendar.events.list({ calendarId, maxResults: 1 })
 
-  const [enrolledRes, commonRes, mapRes] = await Promise.all([
-    supabase.from('user_courses').select('courses(*)').eq('user_id', userId),
+  const [enrolled, commonRes, mapRes] = await Promise.all([
+    getUserSessions(supabase, userId),
     supabase.from('courses').select('*').eq('is_common', true),
     supabase.from('calendar_event_map').select('course_id, gcal_event_id').eq('user_id', userId),
   ])
 
-  const enrolled = (enrolledRes.data ?? []).map((r: { courses: Course }) => r.courses).filter(Boolean)
   const common = (commonRes.data as Course[] | null) ?? []
   const byId = new Map<string, Course>()
   for (const c of [...enrolled, ...common]) if (c) byId.set(c.id, c)

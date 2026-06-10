@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getUserSessions } from '@/lib/enrollment'
 import type { Course } from '@/lib/types'
 
 // Per-picked-course attendance stats + meta.
@@ -9,13 +10,11 @@ export async function GET(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
   const supabase = createServiceClient()
-  const [enrolledRes, attRes] = await Promise.all([
-    supabase.from('user_courses').select('courses(*)').eq('user_id', userId),
+  const [sessions, attRes] = await Promise.all([
+    getUserSessions(supabase, userId),
     supabase.from('attendance').select('course_id, status').eq('user_id', userId),
   ])
-  if (enrolledRes.error) return NextResponse.json({ error: enrolledRes.error.message }, { status: 500 })
 
-  const sessions = (enrolledRes.data ?? []).map((r: { courses: Course }) => r.courses).filter(Boolean)
   const attByCourse = new Map<string, string>()
   for (const a of attRes.data ?? []) attByCourse.set(a.course_id, a.status)
 

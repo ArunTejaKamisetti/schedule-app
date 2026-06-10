@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getUserSessions } from '@/lib/enrollment'
 import ical, { ICalEventStatus } from 'ical-generator'
 import type { Course } from '@/lib/types'
 
@@ -18,14 +19,11 @@ export async function GET(req: NextRequest) {
 
   const supabase = createServiceClient()
 
-  const [enrolledRes, commonRes] = await Promise.all([
-    supabase.from('user_courses').select('courses(*)').eq('user_id', userId),
+  const [enrolled, commonRes] = await Promise.all([
+    getUserSessions(supabase, userId),
     supabase.from('courses').select('*').eq('is_common', true),
   ])
 
-  if (enrolledRes.error) return new NextResponse(enrolledRes.error.message, { status: 500 })
-
-  const enrolled = (enrolledRes.data ?? []).map((r: { courses: Course }) => r.courses).filter(Boolean)
   const common = (commonRes.data as Course[] | null) ?? []
 
   // Union selected courses + common events (exams etc.), de-duplicated by id.
