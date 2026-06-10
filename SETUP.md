@@ -85,15 +85,16 @@ https://YOUR_APP.vercel.app/api/admin/oauth/callback
 
 Re-run the OAuth flow on the production URL to get a production refresh token.
 
-## 9. Set up 15-minute cron (cron-job.org)
+## 9. Sync triggers (instant onChange + daily fallback)
 
-1. Go to https://cron-job.org → Create cronjob
-2. URL: `https://YOUR_APP.vercel.app/api/sync`
-3. Method: POST
-4. Add header: `Authorization: Bearer YOUR_CRON_SECRET`
-5. Schedule: Every 15 minutes
+The app is driven by the **Apps Script `onChange` trigger** (section 13) for instant
+updates, plus the **daily Vercel cron** in `vercel.json` as a safety net.
 
-> The `vercel.json` includes a daily Vercel cron as a fallback, but cron-job.org gives you the 15-minute interval for free.
+> **Do not also run a frequent cron-job.org `/api/sync` job.** Multiple overlapping
+> triggers used to cause duplicate notifications. Notifications are now idempotent
+> (DB-enforced, migration 009), so duplicates are impossible — but a 15-minute cron on top
+> of `onChange` is redundant sync work with no benefit. If you want a belt-and-braces
+> backstop beyond the daily Vercel cron, an **hourly** cron-job.org call is plenty.
 
 ## 10. Add app icons
 

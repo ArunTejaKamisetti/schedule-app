@@ -79,48 +79,94 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
   }
 
   for (const { userId, sub, notifs } of userNotifications.values()) {
-    // Dedup identical changes (same type/course/date/time) → one edit = one alert.
+    // Collapse changes that map to the same alert within this single run.
     const seen = new Set<string>()
     const unique = notifs.filter((ch) => {
-      const key = `${ch.type}::${ch.course_code}::${ch.new?.session_date ?? ch.old?.session_date ?? ''}::${ch.new?.start_time ?? ch.old?.start_time ?? ''}`
-      if (seen.has(key)) return false
-      seen.add(key)
+      const k = dedupKey(ch)
+      if (seen.has(k)) return false
+      seen.add(k)
       return true
     })
 
-    // Cross-run dedup: the Apps Script onChange trigger and the 15-min cron can run the
-    // sync concurrently (and onChange can fire several times for one edit). Each run sees
-    // the same old snapshot and produces the same changes — so skip any alert identical
-    // to one this user already received in the last 30 minutes, and push only for new ones.
-    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-    const { data: recent } = await supabase
-      .from('notifications')
-      .select('title, body')
-      .eq('user_id', userId)
-      .gte('created_at', since)
-    const recentKeys = new Set((recent ?? []).map((r: { title: string; body: string }) => `${r.title}::${r.body}`))
-
-    const fresh = unique.filter((ch) => !recentKeys.has(`${buildTitle(ch)}::${buildBody(ch)}`))
-    if (fresh.length === 0) continue
-
-    const rows = fresh.map((ch) => ({
+    const rows: NotifRow[] = unique.map((ch) => ({
       user_id: userId,
       title: buildTitle(ch),
       body: buildBody(ch),
       type: ch.type,
       course_id: courseIdMap.get(ch.course_code)?.id ?? null,
       read: false,
+      dedup_key: dedupKey(ch),
     }))
 
-    await supabase.from('notifications').insert(rows)
+    // Insert idempotently — only rows that did NOT already exist come back. So no matter how
+    // many syncs race (onChange fires several times per edit + the cron fallback), each real
+    // change yields exactly one alert, and we push ONLY for genuinely new alerts.
+    const fresh = await insertIdempotent(supabase, userId, rows)
+    if (fresh.length === 0) continue
 
     if (sub) {
-      const summary = buildPushSummary(fresh)
+      const summary = fresh.length === 1
+        ? { title: fresh[0].title, body: fresh[0].body }
+        : { title: 'Schedule Updated', body: `${fresh.length} changes to your schedule. Tap to view.` }
       await sendPush(sub, summary.title, summary.body).catch(() => {
         supabase.from('users').update({ push_subscription: null }).eq('id', userId)
       })
     }
   }
+}
+
+// One IST calendar day — buckets the dedup key so the SAME change processed by several
+// concurrent/rapid syncs collapses to one alert, while a genuine repeat on a later day can
+// still notify.
+function istDay(): string {
+  const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
+
+// Stable identity of one logical change, for one user, on one day.
+function dedupKey(ch: CourseChange): string {
+  const date = ch.new?.session_date ?? ch.old?.session_date ?? ''
+  const time = ch.new?.start_time ?? ch.old?.start_time ?? ''
+  return `${istDay()}::${ch.type}::${ch.course_code}::${date}::${time}`
+}
+
+type NotifRow = {
+  user_id: string; title: string; body: string; type: CourseChange['type']
+  course_id: string | null; read: boolean; dedup_key: string
+}
+
+// Insert notifications idempotently and return ONLY the rows actually created.
+// Primary path relies on the (user_id, dedup_key) unique index from migration 009 for true
+// race-safety. If that index/column isn't applied yet, it falls back to filter-then-insert
+// so notifications keep working during the migration window.
+async function insertIdempotent(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+  rows: NotifRow[]
+): Promise<{ title: string; body: string }[]> {
+  if (rows.length === 0) return []
+
+  const up = await supabase
+    .from('notifications')
+    .upsert(rows, { onConflict: 'user_id,dedup_key', ignoreDuplicates: true })
+    .select('title, body')
+  if (!up.error) return (up.data ?? []) as { title: string; body: string }[]
+
+  // Fallback: the unique index isn't there yet → filter against existing keys, then insert.
+  const keys = rows.map((r) => r.dedup_key)
+  const { data: existing, error: selErr } = await supabase
+    .from('notifications').select('dedup_key').eq('user_id', userId).in('dedup_key', keys)
+  if (selErr) {
+    // Even the dedup_key column is missing (pre-migration) — last-resort plain insert.
+    const stripped = rows.map(({ dedup_key: _k, ...r }) => r)
+    const ins = await supabase.from('notifications').insert(stripped).select('title, body')
+    return (ins.data ?? []) as { title: string; body: string }[]
+  }
+  const have = new Set((existing ?? []).map((e: { dedup_key: string }) => e.dedup_key))
+  const toInsert = rows.filter((r) => !have.has(r.dedup_key))
+  if (toInsert.length === 0) return []
+  const ins = await supabase.from('notifications').insert(toInsert).select('title, body')
+  return (ins.data ?? []) as { title: string; body: string }[]
 }
 
 const MONTHS3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -159,16 +205,6 @@ function buildBody(ch: CourseChange): string {
       return `${when}, ${ch.old?.start_time} — session removed.`
     case 'schedule_update':
       return ch.note ? `${when}: ${ch.note}` : `${when}: session updated.`
-  }
-}
-
-function buildPushSummary(changes: CourseChange[]): { title: string; body: string } {
-  if (changes.length === 1) {
-    return { title: buildTitle(changes[0]), body: buildBody(changes[0]) }
-  }
-  return {
-    title: 'Schedule Updated',
-    body: `${changes.length} changes to your schedule. Tap to view.`,
   }
 }
 
