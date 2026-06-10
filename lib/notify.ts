@@ -88,7 +88,22 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
       return true
     })
 
-    const rows = unique.map((ch) => ({
+    // Cross-run dedup: the Apps Script onChange trigger and the 15-min cron can run the
+    // sync concurrently (and onChange can fire several times for one edit). Each run sees
+    // the same old snapshot and produces the same changes — so skip any alert identical
+    // to one this user already received in the last 30 minutes, and push only for new ones.
+    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const { data: recent } = await supabase
+      .from('notifications')
+      .select('title, body')
+      .eq('user_id', userId)
+      .gte('created_at', since)
+    const recentKeys = new Set((recent ?? []).map((r: { title: string; body: string }) => `${r.title}::${r.body}`))
+
+    const fresh = unique.filter((ch) => !recentKeys.has(`${buildTitle(ch)}::${buildBody(ch)}`))
+    if (fresh.length === 0) continue
+
+    const rows = fresh.map((ch) => ({
       user_id: userId,
       title: buildTitle(ch),
       body: buildBody(ch),
@@ -100,7 +115,7 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
     await supabase.from('notifications').insert(rows)
 
     if (sub) {
-      const summary = buildPushSummary(unique)
+      const summary = buildPushSummary(fresh)
       await sendPush(sub, summary.title, summary.body).catch(() => {
         supabase.from('users').update({ push_subscription: null }).eq('id', userId)
       })
@@ -161,7 +176,7 @@ export async function sendPush(
   sub: PushSubscriptionJSON,
   title: string,
   body: string,
-  url = '/notifications'
+  url = '/today?alerts=1'
 ): Promise<void> {
   initVapid()
   await webpush.sendNotification(

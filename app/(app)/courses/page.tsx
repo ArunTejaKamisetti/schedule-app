@@ -347,7 +347,7 @@ function StaticList({ groups, summary }: { groups: CourseGroup[]; summary: Cours
 
   return (
     <div className="space-y-2.5">
-      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance on Today/Week · tap <b className="text-foreground">Edit</b> to change</p>
+      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance in Home/Schedule · tap <b className="text-foreground">Edit</b> to change</p>
       {ordered.map((s) => {
         const pct = s.held > 0 ? Math.round((s.present / s.held) * 100) : null
         const mismatch = s.expected > 0 && s.total > 0 && s.expected !== s.total

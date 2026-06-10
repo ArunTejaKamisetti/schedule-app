@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { setSessionId, setSessionCode } from '@/lib/session'
@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { InstallPrompt } from '@/components/install-prompt'
+import { AlertsPanel } from '@/components/alerts-panel'
 import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
@@ -47,7 +48,7 @@ const TERM_DATES: string[] = (() => {
 })()
 
 export default function TodayPage() {
-  const { userId } = useSession()
+  const { userId, unreadCount } = useSession()
   const [mySessions, setMySessions] = useState<Course[]>([])
   const [commonEvents, setCommonEvents] = useState<Course[]>([])
   const [attendance, setAttendance] = useState<Record<string, string>>({})
@@ -75,6 +76,16 @@ export default function TodayPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importCode, setImportCode] = useState('')
   const [importing, setImporting] = useState(false)
+  const [alertsOpen, setAlertsOpen] = useState(false)
+
+  // Push notifications deep-link here with ?alerts=1 → open the panel.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('alerts')) {
+      setAlertsOpen(true)
+      window.history.replaceState({}, '', '/today')
+    }
+  }, [])
 
   async function importProfile() {
     const code = importCode.trim().toUpperCase()
@@ -159,10 +170,10 @@ export default function TodayPage() {
             </h1>
             <p className="text-sm text-muted-foreground">{format(selDate, 'MMMM d, yyyy')}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setImportOpen((s) => !s)} title="Import profile"
+          <div className="flex items-center gap-2.5">
+            <button onClick={() => setImportOpen((s) => !s)} title="Import your profile from another device"
               className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-              <DownloadCloud size={15} /> Import
+              <DownloadCloud size={15} /> Import Profile
             </button>
             {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
               <button onClick={jumpToday} title="Jump back to today"
@@ -170,6 +181,14 @@ export default function TodayPage() {
                 <CalendarCheck size={14} /> Today
               </button>
             )}
+            <button onClick={() => setAlertsOpen(true)} title="Schedule change alerts" className="relative p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
+              <Bell size={19} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -247,7 +266,7 @@ export default function TodayPage() {
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
         ) : mySessions.length === 0 ? (
           <>
-            <Onboarding />
+            <Onboarding onImport={() => { setImportOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
             {allForDate.length > 0 && (
               <div className="space-y-2.5 mt-3">
                 {allForDate.map((course) => (
@@ -270,6 +289,8 @@ export default function TodayPage() {
           </div>
         )}
       </div>
+
+      <AlertsPanel open={alertsOpen} onOpenChange={setAlertsOpen} />
     </div>
   )
 }
@@ -371,7 +392,7 @@ function ClassCard({ course, status, note, onMark }: {
 }
 
 // ─── New-user onboarding (cool branded landing) ───────────────────────────────
-function Onboarding() {
+function Onboarding({ onImport }: { onImport: () => void }) {
   const features = [
     { icon: GraduationCap, label: 'Classes' },
     { icon: Check, label: 'Attendance' },
@@ -405,9 +426,15 @@ function Onboarding() {
           <li><b className="text-foreground">2.</b> Your day appears here on <b className="text-foreground">Home</b> — mark attendance, add reminders.</li>
           <li><b className="text-foreground">3.</b> Already set up elsewhere? Tap <b className="text-foreground">Import</b> (top-right) with your profile code.</li>
         </ol>
-        <a href="/courses" className="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-5 py-3 rounded-xl">
-          <BookOpen size={16} /> Add your courses
-        </a>
+        <div className="flex items-center gap-2">
+          <a href="/courses" className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-3 rounded-xl">
+            <BookOpen size={16} /> Add your courses
+          </a>
+          <span className="text-muted-foreground text-sm font-bold">/</span>
+          <button onClick={onImport} className="flex-1 flex items-center justify-center gap-1.5 border-2 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-sm font-bold px-4 py-2.5 rounded-xl">
+            <DownloadCloud size={16} /> Import Profile
+          </button>
+        </div>
       </div>
     </div>
   )

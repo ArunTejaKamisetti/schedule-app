@@ -15,22 +15,22 @@ export const MESS_NOTE = 'Menu is tentative — changes may occur based on marke
 export const MESS: Record<string, DayMenu> = {
   MON: {
     breakfast: { veg: ['Idli', 'Medu Vada', 'Coconut Chutney', 'Sambhar', 'Cornflakes', 'Boiled Pulses', 'Banana', 'Bread / Butter / Jam', 'Tea / Coffee / Milk'], special: ['Boiled Egg'] },
-    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Arhar Dal', 'Raw Banana Dry', 'Moong Curry', 'Lemon Rice', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'] },
+    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Arhar Dal', 'Raw Banana Dry', 'Moong Curry', 'Lemon Rice', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Egg Curry'] },
     dinner: { veg: ['Veg Salad', 'Bathura / Phulka', 'Chole Masala', 'Mix Veg Poriyal', 'Veg Biriyani', 'Lowki Dal', 'Curd', 'Fryums', 'Ice-cream (50 ml)', 'Pickle'] },
   },
   TUE: {
     breakfast: { veg: ['Methi Paratha', 'Semiya Upma', 'Veg Korma', 'Coconut Chutney', 'Chocos', 'Boiled Pulses', 'Cut Fruits (Watermelon)', 'Bread / Butter / Jam', 'Tea / Coffee / Milk'], special: ['Boiled Egg'] },
-    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Dal Thadka', 'Pumkin Dry', 'Veg Koftha Curry', 'Coconut Pulao', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Fish Curry', 'Egg Curry'] },
+    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Dal Thadka', 'Pumkin Dry', 'Veg Koftha Curry', 'Coconut Pulao', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Fish Curry'] },
     dinner: { veg: ['Veg Salad', 'Chapati / Phulka', 'Mutter Masala', 'Aloo Kara Poriyal', 'Coarn Pulao', 'Tomato Pappu', 'Cucumber Chilli Raita', 'Pappad', 'Sweet', 'Pickle'], special: ['Paneer Butter Masala', 'Chicken Curry'] },
   },
   WED: {
     breakfast: { veg: ['Masala Dosa', 'Veg Wheat Upma', 'Sambar', 'Coriyander Chutney', 'Cornflakes', 'Boiled Pulses', 'Banana', 'Bread / Butter / Jam', 'Tea / Coffee / Milk'], special: ['Boiled Egg'] },
-    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Dal Fry', 'Cabbage Poriyal', 'Chole Masala', 'Tamarind Rice', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'] },
+    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Dal Fry', 'Cabbage Poriyal', 'Chole Masala', 'Tamarind Rice', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Egg Masala'] },
     dinner: { veg: ['Veg Salad', 'Chapati / Phulka', 'Veg Makhanwala', 'Beetroot Dry', 'Jeera Pulao', 'Dal Fry', 'Buttermilk', 'Fryums', 'Sweet', 'Pickle'], special: ['Kadai Paneer', 'Pepper Chicken'] },
   },
   THU: {
     breakfast: { veg: ['Poori', 'Semiya Upma', 'Aloo Bajhi', 'Coconut Chutney', 'Chocos', 'Boiled Pulses', 'Cut Fruits (Papaya)', 'Bread / Butter / Jam', 'Tea / Coffee / Milk'], special: ['Boiled Egg'] },
-    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Palak Dal', 'Bottle Gourd Dry', 'Mattar Masala', 'Thawa Pulao', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Fish Curry', 'Egg Masala'] },
+    lunch: { veg: ['Veg Salad', 'Chapati / Phulka', 'Palak Dal', 'Bottle Gourd Dry', 'Mattar Masala', 'Thawa Pulao', 'Rice', 'Sambar', 'Butter Milk', 'Pappad / Fryums', 'Pickle'], special: ['Fish Curry'] },
     dinner: { veg: ['Veg Salad', 'Chapati / Phulka', 'Soya Andhra Style Chilli', 'Thawa Veg', 'Veg Fried Rice', 'Dalthaduka', 'Buttermilk', 'Pappad', 'Sweet', 'Pickle'], special: ['Chilli Paneer', 'Chilli Chicken'] },
   },
   FRI: {

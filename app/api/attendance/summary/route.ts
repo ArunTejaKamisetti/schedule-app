@@ -19,9 +19,11 @@ export async function GET(req: NextRequest) {
   const attByCourse = new Map<string, string>()
   for (const a of attRes.data ?? []) attByCourse.set(a.course_id, a.status)
 
-  // IST "today" (sheet timezone).
+  // IST "now" (sheet timezone) — date AND time, so a class later today still counts
+  // as "left" until its start time passes.
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
   const today = `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, '0')}-${String(ist.getUTCDate()).padStart(2, '0')}`
+  const nowHM = `${String(ist.getUTCHours()).padStart(2, '0')}:${String(ist.getUTCMinutes()).padStart(2, '0')}`
 
   type Stat = {
     code: string; name: string; area: string | null; instructor: string | null; room: string | null; credits: string | null
@@ -42,7 +44,9 @@ export async function GET(req: NextRequest) {
     }
     if (s.is_cancelled) continue
     st.total++
-    const isPast = (s.session_date ?? '') <= today
+    const d = s.session_date ?? ''
+    // Held only once the class has actually started (date + time, not just date).
+    const isPast = d < today || (d === today && (s.start_time ?? '23:59') <= nowHM)
     if (isPast) st.held++; else st.left++
     const status = attByCourse.get(s.id)
     if (status === 'present') st.present++

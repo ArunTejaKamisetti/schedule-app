@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, Copy, UserPlus, Trash2, ArrowRight, Check } from 'lucide-react'
+import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,23 +13,49 @@ import type { Friendship, User } from '@/lib/types'
 import Link from 'next/link'
 
 export default function FriendsPage() {
-  const { userId, shareCode } = useSession()
+  const { userId, shareCode, user } = useSession()
   const [friends, setFriends] = useState<(Friendship & { friend: User })[]>([])
   const [loading, setLoading] = useState(true)
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [savedName, setSavedName] = useState('')
+  const [savingName, setSavingName] = useState(false)
+
+  const myName = savedName || user?.display_name || ''
 
   useEffect(() => {
     if (!userId) return
     fetch(`/api/friends?userId=${userId}`)
       .then((r) => r.json())
       .then((data) => {
-        setFriends(data.filter((f: Friendship) => f.status === 'accepted'))
+        const accepted = data.filter((f: Friendship) => f.status === 'accepted')
+        // Named friends first; "Anonymous" (no display_name) at the bottom.
+        accepted.sort((a: Friendship & { friend: User }, b: Friendship & { friend: User }) => {
+          const an = a.friend?.display_name?.trim() ? 0 : 1
+          const bn = b.friend?.display_name?.trim() ? 0 : 1
+          if (an !== bn) return an - bn
+          return (a.friend?.display_name ?? '').localeCompare(b.friend?.display_name ?? '')
+        })
+        setFriends(accepted)
         setLoading(false)
       })
       .catch(() => setLoading(false))
   }, [userId])
+
+  async function saveName() {
+    const name = nameDraft.trim()
+    if (!name || !userId) return
+    setSavingName(true)
+    await fetch('/api/user/name', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, name }),
+    }).catch(() => {})
+    setSavedName(name)
+    setSavingName(false)
+    toast.success(`Hi ${name}! Friends will now see your name.`)
+  }
 
   function copyCode() {
     navigator.clipboard.writeText(shareCode)
@@ -79,6 +105,31 @@ export default function FriendsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+        {/* Your name — friends see this instead of "Anonymous". Optional but encouraged. */}
+        {!myName ? (
+          <div className="rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/50 dark:to-violet-950/40 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles size={16} className="text-indigo-600 dark:text-indigo-400" />
+              <p className="text-sm font-bold text-foreground">What should friends call you?</p>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Right now you show up as <b className="text-foreground">“Anonymous”</b> on your friends&apos; lists. Add your name so they recognise you. (Optional)</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Your name…"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                className="text-sm bg-card"
+              />
+              <Button onClick={saveName} disabled={!nameDraft.trim() || savingName} size="sm">Save</Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground -mb-2">
+            Friends see you as <b className="text-foreground">{myName}</b> · change it in Settings
+          </p>
+        )}
+
         {/* Your code card */}
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 dark:bg-indigo-950/40 dark:border-indigo-900">
           <p className="text-xs font-medium text-indigo-600 dark:text-indigo-300 mb-1">Your share code</p>
