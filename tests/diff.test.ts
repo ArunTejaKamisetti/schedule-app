@@ -94,6 +94,26 @@ describe('diffSheetData', () => {
     expect(d.changes.some((c) => c.type === 'added' && c.course_code === 'GT-A')).toBe(true)
   })
 
+  it('pairs multiple same-course moves on one date sensibly (time-move vs room-move)', () => {
+    // CB has two sessions on 9 Jun: 09:15 @D1 and 12:15 @D2.
+    // After: 09:15→10:45 stays in D1 (time move); 12:15 stays at 12:15 but D2→E1 (room move).
+    const prev = buildSheet([
+      ['Tuesday, 9 June, 2026', '09.15-10.30', 'CB', '', '', ''],
+      ['Tuesday, 9 June, 2026', '12.15-13.30', '', 'CB', '', ''],
+    ])
+    const next = buildSheet([
+      ['Tuesday, 9 June, 2026', '10.45-12.00', 'CB', '', '', ''],
+      ['Tuesday, 9 June, 2026', '12.15-13.30', '', '', 'CB', ''],
+    ])
+    const d = diffSheetData(prev, next)
+    const resched = d.changes.find((c) => c.course_code === 'CB' && c.type === 'rescheduled')
+    const roomCh = d.changes.find((c) => c.course_code === 'CB' && c.type === 'room_change')
+    expect(resched?.note).toContain('09:15')   // paired with the D1 session, not the D2 one
+    expect(resched?.note).toContain('10:45')
+    expect(roomCh?.note).toMatch(/D2.*E1/)      // the room move kept its 12:15 time
+    expect(d.removed).toHaveLength(0)           // both are moves, neither a removal
+  })
+
   it('reads colour from each cell\'s OWN column — same code in two columns, only one cancelled', () => {
     // GUEST appears in D1 (col 2) and D2 (col 3); only D2 turns red. The old code read both
     // from the first match and missed it — this pins the column-exact behaviour.

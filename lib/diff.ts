@@ -127,8 +127,18 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
 
   // Pass 2 — match removals with additions of the SAME course on the SAME date → a move.
   const removeLeft = [...candRemove]
+  // Pick the most sensible removal to pair with, so a course with several moving sessions on
+  // one date gets accurate notes: prefer same section (a pure time change), then same time (a
+  // pure room change), then any remaining session of that course that day.
+  function matchRemoval(add: ParsedCourse): number {
+    const same = (rm: ParsedCourse) => rm.course_code === add.course_code && rm.session_date === add.session_date
+    let i = removeLeft.findIndex((rm) => same(rm) && rm.sheet_tab === add.sheet_tab && rm.start_time !== add.start_time)
+    if (i < 0) i = removeLeft.findIndex((rm) => same(rm) && rm.start_time === add.start_time && rm.sheet_tab !== add.sheet_tab)
+    if (i < 0) i = removeLeft.findIndex(same)
+    return i
+  }
   for (const add of candAdd) {
-    const idx = removeLeft.findIndex((rm) => rm.course_code === add.course_code && rm.session_date === add.session_date)
+    const idx = matchRemoval(add)
     if (idx >= 0) {
       const rm = removeLeft[idx]
       removeLeft.splice(idx, 1)
