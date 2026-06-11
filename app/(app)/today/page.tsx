@@ -22,7 +22,7 @@ type HomeTab = 'courses' | 'mess' | 'bus'
 // Full term window — every day is selectable on the scroll rail.
 const TERM_START = '2026-06-08'
 const TERM_END = '2026-08-31'
-const CHANGE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000 // highlight changes for 10 days
+const CHANGE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // highlight a change for 3 days after the edit
 
 const CHANGE_LABEL: Record<string, string> = {
   added: 'New', moved: 'Moved', updated: 'Updated',
@@ -404,6 +404,7 @@ function Disclaimer() {
     >
       <Info size={14} className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400" />
       <p className="text-[11px] leading-snug text-muted-foreground">
+        <span className="font-semibold text-foreground">Disclaimer: </span>
         <span className="font-semibold text-foreground">KampusSchedule keeps your day in sync</span> with the official sheet automatically 💜
         {open ? (
           <span> It&apos;s built to make student life easier, but it can occasionally be out of date — so for anything important, do cross-check the official schedule too. Thanks for using it!</span>

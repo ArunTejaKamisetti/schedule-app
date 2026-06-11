@@ -123,6 +123,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Expire stale change highlights: clear the change_kind/note once it's older than the
+    // 3-day UI window, so a real-but-old edit (e.g. a class that moved during early setup)
+    // stops showing as "recently changed" forever.
+    const changeCutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
+    await supabase.from('courses')
+      .update({ change_kind: null, change_note: null, last_changed_at: null })
+      .lt('last_changed_at', changeCutoff)
+
     // Save the snapshot NOW — before the (slow, network-bound) notify + calendar steps — so a
     // timeout in the tail can't stall forward progress. Otherwise the diff would never advance
     // and every retry would re-run the heavy Google Calendar sync and time out again.

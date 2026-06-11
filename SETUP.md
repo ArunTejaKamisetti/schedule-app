@@ -144,15 +144,11 @@ Add a second cron-job.org job for the "Daily morning summary" notification:
 - Method: POST, header `Authorization: Bearer YOUR_CRON_SECRET`
 - Schedule: once daily, ~07:00 IST (01:30 UTC)
 
-## 14b. "Class starting soon" reminders (cron)
+## 14b. "Class starting soon" reminders (no cron needed)
 
-Pushes each user a heads-up ~14 minutes before every class they're enrolled in (plus exams).
-- URL: `https://YOUR_APP.vercel.app/api/cron/class-reminders`
-- Method: POST, header `Authorization: Bearer YOUR_CRON_SECRET`
-- Schedule: **every 5 minutes** (finer = closer to exactly 14 min before).
-
-Delivery is idempotent (the notification dedup key guarantees one reminder per class per
-user), so overlapping ticks never double-send.
+These are **device-local** and need no server job: while the app is open, each user's browser
+schedules a local notification ~14 min before their classes. Opt-out is a toggle in
+Settings → Notifications. (Trade-off: fires only while the app is open in the background.)
 
 ## 15. Google Calendar write-sync (the "Connect Google Calendar" button)
 

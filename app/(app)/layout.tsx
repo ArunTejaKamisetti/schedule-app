@@ -1,5 +1,6 @@
 import { SessionProvider } from '@/components/session-provider'
 import { BottomNav } from '@/components/bottom-nav'
+import { ClassReminders } from '@/components/class-reminders'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   // App-shell: viewport-height column with the nav in normal flow at the bottom.
@@ -11,6 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 min-h-0">{children}</div>
         <BottomNav />
       </div>
+      <ClassReminders />
     </SessionProvider>
   )
 }

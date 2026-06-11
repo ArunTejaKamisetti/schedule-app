@@ -37,8 +37,22 @@ export default function SettingsPage() {
   })
   const [showManual, setShowManual] = useState(false)
   const [gcalConnected, setGcalConnected] = useState(false)
+  const [classReminders, setClassReminders] = useState(true)
 
   useEffect(() => setMounted(true), [])
+
+  // Class reminders are a device-local toggle (no server). On = the app schedules a heads-up
+  // ~14 min before each class while it's open.
+  useEffect(() => { setClassReminders(localStorage.getItem('class_reminders_off') !== '1') }, [])
+  function toggleClassReminders() {
+    setClassReminders((on) => {
+      const next = !on
+      localStorage.setItem('class_reminders_off', next ? '0' : '1')
+      if (next && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission()
+      toast.success(next ? 'Class reminders on' : 'Class reminders off')
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!userId) return
@@ -235,6 +249,14 @@ export default function SettingsPage() {
                 <span className="text-sm text-foreground">{label}</span>
               </label>
             ))}
+            {/* Device-local — no server cron. */}
+            <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">
+              <Checkbox checked={classReminders} onCheckedChange={toggleClassReminders} />
+              <span>
+                <span className="text-sm text-foreground">Class reminder (~14 min before)</span>
+                <span className="block text-[11px] text-muted-foreground">A heads-up before each class, on this device, while the app is open.</span>
+              </span>
+            </label>
           </div>
         </Section>
 

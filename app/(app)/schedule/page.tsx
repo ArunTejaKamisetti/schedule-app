@@ -31,7 +31,7 @@ function timeMin(t: string | null): number {
   return h * 60 + (m || 0)
 }
 
-const CHANGE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000
+const CHANGE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // highlight a change for 3 days after the edit
 const CHANGE_LABEL: Record<string, string> = {
   added: 'New', moved: 'Moved', updated: 'Updated',
   rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
