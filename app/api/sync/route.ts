@@ -102,25 +102,24 @@ export async function POST(req: NextRequest) {
       await supabase.from('courses').delete().lt('last_synced_at', syncStartedAt)
     }
 
-    // Persist "what changed" on each changed session for the daily-page highlight.
-    // ONE batched upsert (partial columns → only these fields update; unchanged rows keep
-    // their prior change metadata). Replaces a per-row UPDATE loop that did ~one round-trip
-    // per change and slowed the function toward the 60s limit.
+    // Persist "what changed" on each changed session for the daily-page highlight. Must be an
+    // UPDATE (not a partial upsert — that fails the course_name NOT-NULL on the insert arbiter),
+    // run in PARALLEL chunks so even a big change set stays well under the time budget. Only
+    // changed rows are touched, so unchanged rows keep their prior highlight.
     const changedRows = diff.upserts.filter((c) => c.change_kind)
     if (changedRows.length > 0) {
       const nowIso = new Date().toISOString()
-      await supabase.from('courses').upsert(
-        changedRows.map((c) => ({
-          course_code: c.course_code,
-          sheet_tab: c.sheet_tab,
-          session_date: c.session_date || null,
-          start_time: c.start_time || null,
-          change_kind: c.change_kind,
-          change_note: c.change_note ?? null,
-          last_changed_at: nowIso,
-        })),
-        { onConflict: 'course_code,sheet_tab,session_date,start_time' }
-      )
+      const CHUNK = 50
+      for (let i = 0; i < changedRows.length; i += CHUNK) {
+        await Promise.all(changedRows.slice(i, i + CHUNK).map((c) =>
+          supabase.from('courses')
+            .update({ change_kind: c.change_kind, change_note: c.change_note ?? null, last_changed_at: nowIso })
+            .eq('course_code', c.course_code)
+            .eq('sheet_tab', c.sheet_tab)
+            .eq('session_date', c.session_date)
+            .eq('start_time', c.start_time)
+        ))
+      }
     }
 
     // Expire stale change highlights: clear the change_kind/note once it's older than the

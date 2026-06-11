@@ -85,16 +85,23 @@ https://YOUR_APP.vercel.app/api/admin/oauth/callback
 
 Re-run the OAuth flow on the production URL to get a production refresh token.
 
-## 9. Sync triggers (instant onChange + daily fallback)
+## 9. Sync triggers — frequent cron + instant onChange (recommended)
 
-The app is driven by the **Apps Script `onChange` trigger** (section 13) for instant
-updates, plus the **daily Vercel cron** in `vercel.json` as a safety net.
+Run **both**:
+1. **cron-job.org → `/api/sync`, every 2–3 minutes** (POST, header `Authorization: Bearer
+   YOUR_CRON_SECRET`). This is the reliable backbone: it guarantees every sheet edit
+   (cancellation/addition/move) is picked up within a couple of minutes even if `onChange`
+   doesn't fire.
+2. **Apps Script `onChange` trigger** (section 13) for near-instant updates on top.
 
-> **Do not also run a frequent cron-job.org `/api/sync` job.** Multiple overlapping
-> triggers used to cause duplicate notifications. Notifications are now idempotent
-> (DB-enforced, migration 009), so duplicates are impossible — but a 15-minute cron on top
-> of `onChange` is redundant sync work with no benefit. If you want a belt-and-braces
-> backstop beyond the daily Vercel cron, an **hourly** cron-job.org call is plenty.
+Why both, and is it safe at scale? **Yes.** `/api/sync` runs once per tick **server-side,
+regardless of how many students use the app** — its cost is the sheet size (~1,700 rows),
+not the user count. Notifications are DB-deduped (migration 009), so the cron and `onChange`
+overlapping can never double-send. A 2–3 min cron is ~500–700 runs/day, each a few seconds.
+
+> Earlier guidance said to drop the frequent cron in favour of `onChange` alone — **don't**:
+> if `onChange` fails to fire, a cancellation can sit undetected until the daily cron. The
+> 2–3 min cron is the safety net that prevents that.
 
 ## 10. Add app icons
 

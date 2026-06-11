@@ -55,64 +55,62 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
     }
   }
 
-  // Group changes by course_code → user
-  const userNotifications = new Map<string, { userId: string; sub: PushSubscriptionJSON | null; notifs: CourseChange[] }>()
+  // course_id → course (avoids an O(enrollments × courses) .find at 500-student scale).
+  const courseById = new Map(courses.map((c) => [c.id, c]))
 
+  // Per-user relevant changes (honouring the Settings prefs).
+  const perUser = new Map<string, { sub: PushSubscriptionJSON | null; notifs: CourseChange[] }>()
   for (const enrollment of enrollments) {
     const user = (enrollment as any).users as (NotifPrefs & { id: string; push_subscription: PushSubscriptionJSON | null }) | null
     if (!user) continue
-    const course = courseIdMap.get(
-      courses.find((c) => c.id === enrollment.course_id)?.course_code ?? ''
-    )
-    const relevantChanges = changes.filter(
-      (ch) => ch.course_code === course?.course_code && wantsChange(user, ch.type)
-    )
-    if (relevantChanges.length === 0) continue
-
-    if (!userNotifications.has(user.id)) {
-      userNotifications.set(user.id, {
-        userId: user.id,
-        sub: user.push_subscription,
-        notifs: [],
-      })
-    }
-    userNotifications.get(user.id)!.notifs.push(...relevantChanges)
+    const course = courseById.get((enrollment as { course_id: string }).course_id)
+    if (!course) continue
+    const relevant = changes.filter((ch) => ch.course_code === course.course_code && wantsChange(user, ch.type))
+    if (relevant.length === 0) continue
+    if (!perUser.has(user.id)) perUser.set(user.id, { sub: user.push_subscription, notifs: [] })
+    perUser.get(user.id)!.notifs.push(...relevant)
   }
 
-  for (const { userId, sub, notifs } of userNotifications.values()) {
-    // Collapse changes that map to the same alert within this single run.
+  // Build ALL alert rows across every affected user (deduped within each user), then do ONE
+  // bulk idempotent insert — instead of a query per user. Scales to hundreds of recipients.
+  const subByUser = new Map<string, PushSubscriptionJSON | null>()
+  const allRows: NotifRow[] = []
+  for (const [userId, { sub, notifs }] of perUser) {
+    subByUser.set(userId, sub)
     const seen = new Set<string>()
-    const unique = notifs.filter((ch) => {
+    for (const ch of notifs) {
       const k = dedupKey(ch)
-      if (seen.has(k)) return false
+      if (seen.has(k)) continue
       seen.add(k)
-      return true
-    })
-
-    const rows: NotifRow[] = unique.map((ch) => ({
-      user_id: userId,
-      title: buildTitle(ch),
-      body: buildBody(ch),
-      type: ch.type,
-      course_id: courseIdMap.get(ch.course_code)?.id ?? null,
-      read: false,
-      dedup_key: dedupKey(ch),
-    }))
-
-    // Insert idempotently — only rows that did NOT already exist come back. So no matter how
-    // many syncs race (onChange fires several times per edit + the cron fallback), each real
-    // change yields exactly one alert, and we push ONLY for genuinely new alerts.
-    const fresh = await insertNotificationsDeduped(supabase, rows)
-    if (fresh.length === 0) continue
-
-    if (sub) {
-      const summary = fresh.length === 1
-        ? { title: fresh[0].title, body: fresh[0].body }
-        : { title: 'Schedule Updated', body: `${fresh.length} changes to your schedule. Tap to view.` }
-      await sendPush(sub, summary.title, summary.body).catch(() => {
-        supabase.from('users').update({ push_subscription: null }).eq('id', userId)
+      allRows.push({
+        user_id: userId, title: buildTitle(ch), body: buildBody(ch), type: ch.type,
+        course_id: courseIdMap.get(ch.course_code)?.id ?? null, read: false, dedup_key: k,
       })
     }
+  }
+
+  const fresh = await insertNotificationsDeduped(supabase, allRows)
+  if (fresh.length === 0) return
+
+  // One push summary per user, sent in PARALLEL (chunked) — a change hitting 100+ of 500
+  // students no longer serialises into a 60s-busting loop.
+  const freshByUser = new Map<string, { title: string; body: string }[]>()
+  for (const f of fresh) {
+    if (!freshByUser.has(f.user_id)) freshByUser.set(f.user_id, [])
+    freshByUser.get(f.user_id)!.push({ title: f.title, body: f.body })
+  }
+  const targets = [...freshByUser.entries()].filter(([userId]) => subByUser.get(userId))
+  const CHUNK = 50
+  for (let i = 0; i < targets.length; i += CHUNK) {
+    await Promise.all(targets.slice(i, i + CHUNK).map(async ([userId, items]) => {
+      const sub = subByUser.get(userId)!
+      const summary = items.length === 1
+        ? items[0]
+        : { title: 'Schedule Updated', body: `${items.length} changes to your schedule. Tap to view.` }
+      await sendPush(sub, summary.title, summary.body).catch(() =>
+        supabase.from('users').update({ push_subscription: null }).eq('id', userId)
+      )
+    }))
   }
 }
 
