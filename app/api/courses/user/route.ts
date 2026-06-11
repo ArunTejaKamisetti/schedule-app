@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getUserSessions } from '@/lib/enrollment'
+import { syncGoogleCalendarForUser } from '@/lib/gcal'
 
 // GET /api/courses/user?userId=xxx  → every current session of the user's picked courses.
 // Resolved by course CODE (not frozen session ids), so classes added/moved/updated in the
@@ -40,6 +41,11 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase.rpc('unpick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  // Keep the user's Google Calendar in step with just this course (insert its events on add,
+  // remove them on unpick). No-op and instant for users who haven't connected a calendar.
+  // The UI updates optimistically, so this runs in the background of the request.
+  await syncGoogleCalendarForUser(userId, new Set([courseCode])).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }

@@ -152,7 +152,9 @@ export async function POST(req: NextRequest) {
       const { data: connected } = await supabase.from('user_calendar_tokens').select('user_id')
       const connectedIds = (connected ?? []).map((c: { user_id: string }) => c.user_id)
       if (connectedIds.length > 0) {
-        await syncGoogleCalendarForUsers(connectedIds).catch((e) =>
+        // Incremental: only the courses that changed this sync — unaffected users do no work.
+        const changedCodes = new Set(diff.changes.map((c) => c.course_code))
+        await syncGoogleCalendarForUsers(connectedIds, changedCodes).catch((e) =>
           console.error('Google Calendar sync failed:', e)
         )
       }

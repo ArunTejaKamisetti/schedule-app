@@ -80,18 +80,41 @@ function buildEvent(course: Course): calendar_v3.Schema$Event | null {
   }
 }
 
+export interface CalendarPlan {
+  toUpsert: Course[]                                       // sessions whose event to create/patch
+  toDelete: { courseId: string; eventId: string }[]       // orphaned events to remove
+}
+
+// Decide what a single calendar sync must do — kept pure so it can be unit-tested.
+//   • changedCodes given (incremental, on a sheet change): only push sessions whose course
+//     changed; users not enrolled in any changed course get an empty upsert list.
+//   • changedCodes undefined (full sync, e.g. on connect / on pick): push everything current.
+// Orphans (mapped events whose course is no longer among the user's current sessions —
+// removed from the sheet or unpicked) are always cleaned up, regardless of mode.
+export function planCalendarSync(
+  current: Course[],
+  existing: Map<string, string>,
+  changedCodes?: Set<string>
+): CalendarPlan {
+  const byId = new Map(current.map((c) => [c.id, c]))
+  const toUpsert = changedCodes
+    ? current.filter((c) => changedCodes.has(c.course_code))
+    : current
+  const toDelete = [...existing]
+    .filter(([courseId]) => !byId.has(courseId))
+    .map(([courseId, eventId]) => ({ courseId, eventId }))
+  return { toUpsert, toDelete }
+}
+
 // Reconcile a user's Google Calendar with their current courses + common events.
-export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
+// `changedCodes` (optional) limits work to events that actually changed this sync — so a
+// routine sheet edit touches a handful of events instead of re-pushing the user's whole term
+// (which previously made the sync exceed its 60s budget for several connected users).
+export async function syncGoogleCalendarForUser(userId: string, changedCodes?: Set<string>): Promise<void> {
   const auth = await getUserCalendarClient(userId)
   if (!auth) return
 
   const supabase = createServiceClient()
-  const calendar = google.calendar({ version: 'v3', auth: auth.client })
-  const calendarId = auth.calendarId
-
-  // Probe — throws loudly if the Calendar API is disabled or the token/scope is bad,
-  // so the connect flow can show the real reason instead of silently doing nothing.
-  await calendar.events.list({ calendarId, maxResults: 1 })
 
   const [enrolled, commonRes, mapRes] = await Promise.all([
     getUserSessions(supabase, userId),
@@ -100,17 +123,26 @@ export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
   ])
 
   const common = (commonRes.data as Course[] | null) ?? []
-  const byId = new Map<string, Course>()
-  for (const c of [...enrolled, ...common]) if (c) byId.set(c.id, c)
-
+  const current = [...enrolled, ...common].filter(Boolean) as Course[]
   const existing = new Map<string, string>() // course_id → gcal_event_id
   for (const row of mapRes.data ?? []) existing.set(row.course_id, row.gcal_event_id)
 
-  // Upsert events for current courses.
-  for (const [courseId, course] of byId) {
+  const { toUpsert, toDelete } = planCalendarSync(current, existing, changedCodes)
+
+  // Nothing to do for this user → make ZERO Google API calls (not even the probe). This is
+  // the win: on a typical change, most connected users are unaffected and cost only DB reads.
+  if (toUpsert.length === 0 && toDelete.length === 0) return
+
+  const calendar = google.calendar({ version: 'v3', auth: auth.client })
+  const calendarId = auth.calendarId
+
+  // Probe — surfaces a disabled API / bad token / missing scope loudly.
+  await calendar.events.list({ calendarId, maxResults: 1 })
+
+  for (const course of toUpsert) {
     const event = buildEvent(course)
     if (!event) continue
-    const gid = existing.get(courseId)
+    const gid = existing.get(course.id)
     try {
       if (gid) {
         await calendar.events.patch({ calendarId, eventId: gid, requestBody: event })
@@ -119,23 +151,21 @@ export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
         if (res.data.id) {
           await supabase.from('calendar_event_map').upsert({
             user_id: userId,
-            course_id: courseId,
+            course_id: course.id,
             gcal_event_id: res.data.id,
           })
         }
       }
     } catch (e) {
       // A stale mapping (event deleted by user) — drop it so it re-inserts next run.
-      console.error('gcal upsert failed', courseId, e)
-      if (gid) await supabase.from('calendar_event_map').delete().eq('user_id', userId).eq('course_id', courseId)
+      console.error('gcal upsert failed', course.id, e)
+      if (gid) await supabase.from('calendar_event_map').delete().eq('user_id', userId).eq('course_id', course.id)
     }
   }
 
-  // Delete events for courses the user no longer has.
-  for (const [courseId, gid] of existing) {
-    if (byId.has(courseId)) continue
+  for (const { courseId, eventId } of toDelete) {
     try {
-      await calendar.events.delete({ calendarId, eventId: gid })
+      await calendar.events.delete({ calendarId, eventId })
     } catch (e) {
       console.error('gcal delete failed', courseId, e)
     }
@@ -143,9 +173,9 @@ export async function syncGoogleCalendarForUser(userId: string): Promise<void> {
   }
 }
 
-export async function syncGoogleCalendarForUsers(userIds: string[]): Promise<void> {
+export async function syncGoogleCalendarForUsers(userIds: string[], changedCodes?: Set<string>): Promise<void> {
   for (const id of userIds) {
-    await syncGoogleCalendarForUser(id).catch((e) => console.error('gcal user sync failed', id, e))
+    await syncGoogleCalendarForUser(id, changedCodes).catch((e) => console.error('gcal user sync failed', id, e))
   }
 }
 
