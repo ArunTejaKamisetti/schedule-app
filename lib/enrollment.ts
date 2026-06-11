@@ -19,10 +19,23 @@ export async function getUserPickedCodes(supabase: ServiceClient, userId: string
   return [...codes]
 }
 
+// Remembered per warm function instance: is the user_sessions RPC (migration 010) present?
+// Avoids re-probing a missing function on every call before the migration is applied.
+let rpcAvailable: boolean | null = null
+
 // Every CURRENT session of the courses a user picked. Reads the live `courses` table by
-// code, so classes that are added / moved / updated / removed in the sheet are reflected
-// immediately — no need to re-pick. Paginates past PostgREST's 1000-row cap.
+// code, so classes added / moved / updated / removed in the sheet are reflected immediately.
+//
+// Fast path: ONE round trip via the user_sessions RPC (migration 010) — important because the
+// two-query fallback doubles latency when the DB is a region away. Falls back to the two-query
+// resolution if the RPC isn't applied yet.
 export async function getUserSessions(supabase: ServiceClient, userId: string): Promise<Course[]> {
+  if (rpcAvailable !== false) {
+    const { data, error } = await supabase.rpc('user_sessions', { p_user: userId })
+    if (!error) { rpcAvailable = true; return (data ?? []) as Course[] }
+    rpcAvailable = false // function missing on this instance → skip the probe next time
+  }
+
   const codes = await getUserPickedCodes(supabase, userId)
   if (codes.length === 0) return []
   const all: Course[] = []
