@@ -102,7 +102,7 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
     // Insert idempotently — only rows that did NOT already exist come back. So no matter how
     // many syncs race (onChange fires several times per edit + the cron fallback), each real
     // change yields exactly one alert, and we push ONLY for genuinely new alerts.
-    const fresh = await insertIdempotent(supabase, userId, rows)
+    const fresh = await insertNotificationsDeduped(supabase, rows)
     if (fresh.length === 0) continue
 
     if (sub) {
@@ -116,43 +116,30 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
   }
 }
 
-type NotifRow = {
-  user_id: string; title: string; body: string; type: CourseChange['type']
+export type NotifRow = {
+  user_id: string; title: string; body: string; type: string
   course_id: string | null; read: boolean; dedup_key: string
 }
 
-// Insert notifications idempotently and return ONLY the rows actually created.
-// Primary path relies on the (user_id, dedup_key) unique index from migration 009 for true
-// race-safety. If that index/column isn't applied yet, it falls back to filter-then-insert
-// so notifications keep working during the migration window.
-async function insertIdempotent(
+// Insert notifications and return ONLY the rows actually created — so callers push exactly the
+// new ones. Dedup is the (user_id, dedup_key) unique index from migration 009. That index is
+// PARTIAL (WHERE dedup_key IS NOT NULL), which PostgREST's upsert/onConflict can't infer, so we
+// filter out already-present keys and plain-insert; the unique index still backstops any
+// concurrent race (a duplicate insert simply fails and is skipped). Shared by change alerts and
+// class reminders.
+export async function insertNotificationsDeduped(
   supabase: ReturnType<typeof createServiceClient>,
-  userId: string,
   rows: NotifRow[]
-): Promise<{ title: string; body: string }[]> {
+): Promise<{ user_id: string; title: string; body: string }[]> {
   if (rows.length === 0) return []
-
-  const up = await supabase
-    .from('notifications')
-    .upsert(rows, { onConflict: 'user_id,dedup_key', ignoreDuplicates: true })
-    .select('title, body')
-  if (!up.error) return (up.data ?? []) as { title: string; body: string }[]
-
-  // Fallback: the unique index isn't there yet → filter against existing keys, then insert.
-  const keys = rows.map((r) => r.dedup_key)
-  const { data: existing, error: selErr } = await supabase
-    .from('notifications').select('dedup_key').eq('user_id', userId).in('dedup_key', keys)
-  if (selErr) {
-    // Even the dedup_key column is missing (pre-migration) — last-resort plain insert.
-    const stripped = rows.map(({ dedup_key: _k, ...r }) => r)
-    const ins = await supabase.from('notifications').insert(stripped).select('title, body')
-    return (ins.data ?? []) as { title: string; body: string }[]
-  }
-  const have = new Set((existing ?? []).map((e: { dedup_key: string }) => e.dedup_key))
-  const toInsert = rows.filter((r) => !have.has(r.dedup_key))
+  const keys = [...new Set(rows.map((r) => r.dedup_key))]
+  const { data: existing } = await supabase
+    .from('notifications').select('user_id, dedup_key').in('dedup_key', keys)
+  const have = new Set((existing ?? []).map((e: { user_id: string; dedup_key: string }) => `${e.user_id}::${e.dedup_key}`))
+  const toInsert = rows.filter((r) => !have.has(`${r.user_id}::${r.dedup_key}`))
   if (toInsert.length === 0) return []
-  const ins = await supabase.from('notifications').insert(toInsert).select('title, body')
-  return (ins.data ?? []) as { title: string; body: string }[]
+  const { data } = await supabase.from('notifications').insert(toInsert).select('user_id, title, body')
+  return (data ?? []) as { user_id: string; title: string; body: string }[]
 }
 
 export async function sendPush(

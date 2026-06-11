@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud, Bell } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud, Bell, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { setSessionId, setSessionCode } from '@/lib/session'
@@ -258,6 +258,7 @@ export default function TodayPage() {
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <InstallPrompt />
+        <Disclaimer />
         {tab === 'mess' ? (
           <MessView weekday={WD_CODE[selDate.getDay()]} dateLabel={format(selDate, 'EEEE')} />
         ) : tab === 'bus' ? (
@@ -388,6 +389,29 @@ function ClassCard({ course, status, note, onMark }: {
         </div>
       )}
     </div>
+  )
+}
+
+// A gentle, positive heads-up that the app mirrors the official sheet but shouldn't be the
+// only source of truth. Tap the "i" to expand.
+function Disclaimer() {
+  const [open, setOpen] = useState(false)
+  return (
+    <button
+      onClick={() => setOpen((o) => !o)}
+      className="w-full flex items-start gap-2 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/60 dark:bg-indigo-950/30 px-3 py-2 mb-3 text-left"
+      title="About KampusSchedule"
+    >
+      <Info size={14} className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400" />
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        <span className="font-semibold text-foreground">KampusSchedule keeps your day in sync</span> with the official sheet automatically 💜
+        {open ? (
+          <span> It&apos;s built to make student life easier, but it can occasionally be out of date — so for anything important, do cross-check the official schedule too. Thanks for using it!</span>
+        ) : (
+          <span className="text-indigo-600 dark:text-indigo-400"> — tap to learn more.</span>
+        )}
+      </p>
+    </button>
   )
 }
 

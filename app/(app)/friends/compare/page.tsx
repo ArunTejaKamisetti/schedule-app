@@ -22,6 +22,7 @@ function CompareContent() {
   const friendId = params.get('friendId')
   const [mine, setMine] = useState<Course[]>([])
   const [theirs, setTheirs] = useState<Course[]>([])
+  const [common, setCommon] = useState<Course[]>([])
   const [friendName, setFriendName] = useState('Friend')
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState('')
@@ -32,20 +33,24 @@ function CompareContent() {
       fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
       fetch(`/api/courses/user?userId=${friendId}`).then((r) => r.json()),
       fetch(`/api/friends?userId=${userId}`).then((r) => r.json()),
-    ]).then(([m, t, friends]: [{ courses: Course }[], { courses: Course }[], { friend_id: string; friend: { display_name: string } }[]]) => {
+      fetch(`/api/courses?common=1`).then((r) => r.json()),
+    ]).then(([m, t, friends, cmn]: [{ courses: Course }[], { courses: Course }[], { friend_id: string; friend: { display_name: string } }[], Course[]]) => {
       setMine((m ?? []).map((d) => d.courses).filter(Boolean))
       setTheirs((t ?? []).map((d) => d.courses).filter(Boolean))
+      setCommon(Array.isArray(cmn) ? cmn : [])
       const f = friends?.find((fr) => fr.friend_id === friendId)
       if (f?.friend?.display_name) setFriendName(f.friend.display_name)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [userId, friendId])
 
+  // Include common events (mid/end-term exams) so the strip covers the whole term to 31 Aug —
+  // both friends "share" those days. Enrolled classes alone stop in mid-August.
   const dates = useMemo(() => {
     const set = new Set<string>()
-    for (const c of [...mine, ...theirs]) if (c.session_date) set.add(c.session_date)
+    for (const c of [...mine, ...theirs, ...common]) if (c.session_date) set.add(c.session_date)
     return [...set].sort()
-  }, [mine, theirs])
+  }, [mine, theirs, common])
 
   // Default to today if present, else the first date with data.
   useEffect(() => {
@@ -54,13 +59,14 @@ function CompareContent() {
     setSelectedDate(dates.includes(today) ? today : dates[0])
   }, [dates, selectedDate])
 
+  // Common events (exams) belong to both people's day.
   const myDay = useMemo(
-    () => mine.filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
-    [mine, selectedDate]
+    () => [...mine, ...common].filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
+    [mine, common, selectedDate]
   )
   const theirDay = useMemo(
-    () => theirs.filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
-    [theirs, selectedDate]
+    () => [...theirs, ...common].filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
+    [theirs, common, selectedDate]
   )
   // Shared time axis (union of both people's slots), so rows line up by time.
   const slots = useMemo(() => {
