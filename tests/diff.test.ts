@@ -93,4 +93,18 @@ describe('diffSheetData', () => {
     const d = diffSheetData(prev, next)
     expect(d.changes.some((c) => c.type === 'added' && c.course_code === 'GT-A')).toBe(true)
   })
+
+  it('reads colour from each cell\'s OWN column — same code in two columns, only one cancelled', () => {
+    // GUEST appears in D1 (col 2) and D2 (col 3); only D2 turns red. The old code read both
+    // from the first match and missed it — this pins the column-exact behaviour.
+    const row = ['Tuesday, 9 June, 2026', '09.15-10.30', 'GUEST', 'GUEST', '', '']
+    const prev = snap(row)
+    const next = snap(row, fmtAt(3, RED))
+    const d = diffSheetData(prev, next)
+    const d1 = d.upserts.find((u) => u.sheet_tab === 'PGP-29 D1' && u.course_code === 'GUEST')
+    const d2 = d.upserts.find((u) => u.sheet_tab === 'PGP-29 D2' && u.course_code === 'GUEST')
+    expect(d1?.is_cancelled).toBe(false)   // D1 cell is normal
+    expect(d2?.is_cancelled).toBe(true)    // D2 cell is red
+    expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.new?.sheet_tab)).toEqual(['PGP-29 D2'])
+  })
 })

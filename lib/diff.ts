@@ -22,18 +22,12 @@ function parsedToPartial(p: ParsedCourse): Partial<Course> {
 
 // ─── Cell colour → state (red = cancelled, green = added) ─────────────────────
 
-function getCellFormat(values: string[][], format: CellFormat[][] | undefined, rowIndex: number, code: string): CellFormat | null {
-  if (!format) return null
-  const row = values[rowIndex]
-  if (!row) return null
-  const col = row.findIndex((cell) => (cell || '').trim() === code)
-  if (col === -1) return null
-  return format[rowIndex]?.[col] ?? null
-}
-
 // Coordinators mark cells by colour: red (or strikethrough) = cancelled, green = added/new.
-function cellState(values: string[][], format: CellFormat[][] | undefined, rowIndex: number, code: string): 'red' | 'green' | 'normal' {
-  const fmt = getCellFormat(values, format, rowIndex, code)
+// Reads the EXACT cell the parser used (row + column), so a course code that appears in several
+// columns of one row can never have its colour read from the wrong (first) cell.
+function cellState(format: CellFormat[][] | undefined, rowIndex: number, colIndex: number | undefined): 'red' | 'green' | 'normal' {
+  if (!format || colIndex == null || colIndex < 0) return 'normal'
+  const fmt = format[rowIndex]?.[colIndex]
   if (!fmt) return 'normal'
   if (fmt.strikethrough) return 'red'
   return classifyColor(fmt.bgColor)
@@ -54,7 +48,7 @@ function slotKey(c: { session_date: string; start_time: string; sheet_tab: strin
 }
 
 export function diffSheetData(previousSnapshot: RawSheetData | null, newData: RawSheetData): DiffResult {
-  const newState = (c: ParsedCourse) => cellState(newData.sheet1, newData.sheet1_format, c.sheet_row_index, c.course_code)
+  const newState = (c: ParsedCourse) => cellState(newData.sheet1_format, c.sheet_row_index, c.sheet_col)
 
   const newAll = parseSheetRows(newData.sheet1, 'Sheet1')
   for (const c of newAll) {
@@ -71,7 +65,7 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
     }
   }
 
-  const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1, previousSnapshot.sheet1_format, c.sheet_row_index, c.course_code)
+  const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1_format, c.sheet_row_index, c.sheet_col)
 
   const oldAll = parseSheetRows(previousSnapshot.sheet1, 'Sheet1')
   for (const c of oldAll) {

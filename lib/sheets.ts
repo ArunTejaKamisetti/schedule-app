@@ -390,6 +390,7 @@ function parseScheduleMatrix(rows: string[][], sectionHeaderIdx: number): Parsed
         credits: '',
         sheet_tab: section.label,
         sheet_row_index: rowIdx,
+        sheet_col: section.col, // exact column → colour is read from THIS cell, not by code search
         is_common: false,
         event_kind: 'class',
       })
@@ -523,6 +524,7 @@ export interface ParsedCourse {
   credits: string
   sheet_tab: string
   sheet_row_index: number
+  sheet_col?: number       // exact matrix column of this session's cell (for precise colour reads)
   is_common: boolean
   event_kind: 'class' | 'exam' | 'common'
   is_cancelled?: boolean   // derived from cell colour/strikethrough during diff

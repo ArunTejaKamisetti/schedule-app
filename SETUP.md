@@ -85,23 +85,24 @@ https://YOUR_APP.vercel.app/api/admin/oauth/callback
 
 Re-run the OAuth flow on the production URL to get a production refresh token.
 
-## 9. Sync triggers — frequent cron + instant onChange (recommended)
+## 9. Sync trigger — ONE poll (simple + reliable)
 
-Run **both**:
-1. **cron-job.org → `/api/sync`, every 2–3 minutes** (POST, header `Authorization: Bearer
-   YOUR_CRON_SECRET`). This is the reliable backbone: it guarantees every sheet edit
-   (cancellation/addition/move) is picked up within a couple of minutes even if `onChange`
-   doesn't fire.
-2. **Apps Script `onChange` trigger** (section 13) for near-instant updates on top.
+**Just one thing:** a **cron-job.org job → `/api/sync` every 2 minutes** (POST, header
+`Authorization: Bearer YOUR_CRON_SECRET`). That's the whole sync mechanism.
 
-Why both, and is it safe at scale? **Yes.** `/api/sync` runs once per tick **server-side,
-regardless of how many students use the app** — its cost is the sheet size (~1,700 rows),
-not the user count. Notifications are DB-deduped (migration 009), so the cron and `onChange`
-overlapping can never double-send. A 2–3 min cron is ~500–700 runs/day, each a few seconds.
+This replaces the previous three overlapping triggers (Apps Script `onChange`, a frequent
+cron, and a daily Vercel cron). Polling is *inherently reliable* — it never depends on
+`onChange` choosing to fire (the flakiness that let a cancellation sit undetected). A 2-min
+worst-case latency is fine for a schedule, and a single mechanism is far easier to reason about.
 
-> Earlier guidance said to drop the frequent cron in favour of `onChange` alone — **don't**:
-> if `onChange` fails to fire, a cancellation can sit undetected until the daily cron. The
-> 2–3 min cron is the safety net that prevents that.
+Is it safe for 500 students? **Yes.** `/api/sync` runs **once per tick, server-side,
+regardless of user count** — its cost is the sheet size (~1,700 rows), not the students.
+~720 short runs/day.
+
+> Removed: the Apps Script `onChange` trigger (delete it in Apps Script → Triggers) and the
+> daily Vercel cron (`vercel.json`). The instant `onChange` path is optional — if you want
+> near-instant updates you can keep it, since notifications are DB-deduped (migration 009)
+> and can't double-send — but it is **not required** and is no longer the safety net.
 
 ## 10. Add app icons
 
