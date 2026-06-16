@@ -33,6 +33,10 @@ interface CourseStat {
 // a timetable loaded — come from /api/courses?year1sections=1.
 const YEAR1_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'LSM', 'FIN'] as const
 
+// 1st-year selection is built but not yet ready for students — keep the tab visible but
+// unclickable (Work-in-Progress) until the remaining logic lands. Flip to true to re-enable.
+const YEAR1_ENABLED = false
+
 export default function CoursesPage() {
   const { userId, user } = useSession()
   const [yearTab, setYearTab] = useState<1 | 2>(2)
@@ -64,7 +68,7 @@ export default function CoursesPage() {
   // Default the active tab to the user's year once known (1st-years open straight into sections).
   useEffect(() => {
     if (yearTabDecided || !user) return
-    setYearTab(user.year === 1 ? 1 : 2)
+    setYearTab(user.year === 1 && YEAR1_ENABLED ? 1 : 2)
     setYearTabDecided(true)
   }, [yearTabDecided, user])
 
@@ -197,18 +201,24 @@ export default function CoursesPage() {
       <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
         {/* Year switch — 2nd-year electives vs 1st-year section timetable. */}
         <div className="flex gap-1 mb-3 bg-muted rounded-xl p-1">
-          {([2, 1] as const).map((y) => (
-            <button
-              key={y}
-              onClick={() => { setYearTab(y); setYearTabDecided(true) }}
-              className={cn(
-                'flex-1 text-sm font-semibold py-1.5 rounded-lg transition-colors',
-                yearTab === y ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
-              )}
-            >
-              {y === 2 ? '2nd Year' : '1st Year'}
-            </button>
-          ))}
+          {([2, 1] as const).map((y) => {
+            const disabled = y === 1 && !YEAR1_ENABLED
+            return (
+              <button
+                key={y}
+                onClick={() => { if (disabled) return; setYearTab(y); setYearTabDecided(true) }}
+                disabled={disabled}
+                title={disabled ? 'Work in Progress' : undefined}
+                className={cn(
+                  'flex-1 text-sm font-semibold py-1.5 rounded-lg transition-colors',
+                  yearTab === y ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground',
+                  disabled && 'opacity-50 cursor-not-allowed'
+                )}
+              >
+                {y === 2 ? '2nd Year' : '1st Year'}
+              </button>
+            )
+          })}
         </div>
 
         {yearTab === 2 ? (
