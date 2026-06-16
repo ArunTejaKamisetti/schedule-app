@@ -8,6 +8,7 @@ import { useSession } from '@/components/session-provider'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { CANONICAL_SLOTS, SLOT_END } from '@/lib/free-time'
 import type { Course } from '@/lib/types'
 
 const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
@@ -38,13 +39,7 @@ const CHANGE_LABEL: Record<string, string> = {
   rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
 }
 
-// Canonical timetable slots from the sheet — always shown (even if empty that week)
-// so the weekly grid is uniform like the Excel sheet.
-const CANONICAL_SLOTS = ['09:15', '10:45', '12:15', '14:30', '16:00', '17:30', '19:00', '20:30']
-const SLOT_END: Record<string, string> = {
-  '09:15': '10:30', '10:45': '12:00', '12:15': '13:30', '14:30': '15:45',
-  '16:00': '17:15', '17:30': '18:45', '19:00': '20:15', '20:30': '21:45', '22:00': '23:15',
-}
+// Canonical timetable slots live in lib/free-time (shared with Compare + Free Time Analysis).
 function recentlyChanged(c: Course): boolean {
   if (!c.last_changed_at || !c.change_kind) return false
   return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS

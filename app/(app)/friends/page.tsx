@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Sparkles } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Sparkles, Search, CalendarClock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { FreeTimeDialog } from '@/components/free-time-dialog'
 import { useSession } from '@/components/session-provider'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -22,8 +23,20 @@ export default function FriendsPage() {
   const [nameDraft, setNameDraft] = useState('')
   const [savedName, setSavedName] = useState('')
   const [savingName, setSavingName] = useState(false)
+  const [friendSearch, setFriendSearch] = useState('')
+  const [freeTimeOpen, setFreeTimeOpen] = useState(false)
 
   const myName = savedName || user?.display_name || ''
+
+  // Filter the friends list by name or share code.
+  const visibleFriends = useMemo(() => {
+    const q = friendSearch.trim().toLowerCase()
+    if (!q) return friends
+    return friends.filter((f) =>
+      (f.friend?.display_name ?? '').toLowerCase().includes(q) ||
+      (f.friend?.share_code ?? '').toLowerCase().includes(q)
+    )
+  }, [friends, friendSearch])
 
   useEffect(() => {
     if (!userId) return
@@ -168,6 +181,26 @@ export default function FriendsPage() {
 
         {/* Friends list */}
         <div>
+          {/* Search + Free Time Analysis */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search friends…"
+                value={friendSearch}
+                onChange={(e) => setFriendSearch(e.target.value)}
+                className="pl-9 bg-muted border-border text-sm"
+              />
+            </div>
+            <button
+              onClick={() => setFreeTimeOpen(true)}
+              title="Free Time Analysis"
+              className="shrink-0 flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+            >
+              <CalendarClock size={18} />
+            </button>
+          </div>
+
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             {friends.length} Friend{friends.length !== 1 ? 's' : ''}
           </p>
@@ -182,9 +215,11 @@ export default function FriendsPage() {
               <p className="text-sm">No friends added yet</p>
               <p className="text-xs mt-1">Share your code or enter a friend&apos;s code above</p>
             </div>
+          ) : visibleFriends.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No friends match “{friendSearch}”.</p>
           ) : (
             <div className="space-y-2">
-              {friends.map((f) => (
+              {visibleFriends.map((f) => (
                 <FriendRow
                   key={f.friend_id}
                   friend={f.friend}
@@ -196,6 +231,8 @@ export default function FriendsPage() {
           )}
         </div>
       </div>
+
+      <FreeTimeDialog userId={userId} open={freeTimeOpen} onOpenChange={setFreeTimeOpen} />
     </div>
   )
 }
