@@ -22,8 +22,9 @@ const DetailCtx = createContext<{
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-function mondayISO(d: Date): string {
-  return localISO(startOfWeek(d, { weekStartsOn: 1 }))
+// Week runs Sunday → Saturday.
+function weekStartISO(d: Date): string {
+  return localISO(startOfWeek(d, { weekStartsOn: 0 }))
 }
 function timeMin(t: string | null): number {
   if (!t) return 0
@@ -52,7 +53,7 @@ function recentlyChanged(c: Course): boolean {
 export default function SchedulePage() {
   const { userId } = useSession()
   const todayISO = localISO(new Date())
-  const [weekStart, setWeekStart] = useState(mondayISO(new Date()))
+  const [weekStart, setWeekStart] = useState(weekStartISO(new Date()))
   const [windowCourses, setWindowCourses] = useState<Course[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -142,7 +143,7 @@ export default function SchedulePage() {
         {/* Week navigation */}
         <div className="mt-3 flex items-center gap-2">
           <button onClick={() => shiftWeek(-1)} title="Previous week" className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronLeft size={16} /></button>
-          <button onClick={() => setWeekStart(mondayISO(new Date()))} title="Back to this week" className="text-sm font-semibold text-foreground flex-1 text-center">
+          <button onClick={() => setWeekStart(weekStartISO(new Date()))} title="Back to this week" className="text-sm font-semibold text-foreground flex-1 text-center">
             {monthLabel}
           </button>
           <button onClick={() => shiftWeek(1)} title="Next week" className="p-1.5 rounded-lg bg-muted text-muted-foreground"><ChevronRight size={16} /></button>

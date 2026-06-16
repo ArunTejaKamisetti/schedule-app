@@ -509,6 +509,12 @@ function BusView() {
   const trips = from === 'All' ? BUS : BUS.filter((t) => t.from === from)
   const nextIdx = trips.findIndex((t) => t.min >= nowMin)
 
+  // Jump straight to the next bus when the tab opens (or the filter changes).
+  const nextRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    nextRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' })
+  }, [from, nextIdx])
+
   return (
     <div className="space-y-3">
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
@@ -525,7 +531,7 @@ function BusView() {
         {trips.map((t, i) => {
           const isNext = i === nextIdx
           return (
-            <div key={`${t.time}-${i}`} className={cn('flex items-center gap-3 rounded-xl border p-3',
+            <div key={`${t.time}-${i}`} ref={isNext ? nextRef : undefined} className={cn('flex items-center gap-3 rounded-xl border p-3 scroll-mt-4',
               isNext ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 ring-1 ring-indigo-300 dark:ring-indigo-700' : 'border-border bg-card')}>
               <div className="shrink-0 w-16 text-center">
                 <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{t.time.replace(' ', '')}</p>
