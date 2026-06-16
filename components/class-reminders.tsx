@@ -25,7 +25,7 @@ function safeParse(s: string | null): string[] {
 }
 
 export function ClassReminders() {
-  const { userId } = useSession()
+  const { userId, user } = useSession()
 
   useEffect(() => {
     if (!userId || typeof window === 'undefined') return
@@ -40,7 +40,7 @@ export function ClassReminders() {
       timers = []
       const [mineRes, commonRes] = await Promise.all([
         fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()).catch(() => []),
-        fetch(`/api/courses?common=1`).then((r) => r.json()).catch(() => []),
+        fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()).catch(() => []),
       ])
       if (!active) return
 
@@ -85,7 +85,7 @@ export function ClassReminders() {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onFocus)
     }
-  }, [userId])
+  }, [userId, user?.year])
 
   return null
 }

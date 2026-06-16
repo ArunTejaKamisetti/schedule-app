@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
     }
     const { error } = await supabase.rpc('pick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Picking an elective marks this account as 2nd-year (flips a former 1st-year section back).
+    await supabase.from('users').update({ year: 2 }).eq('id', userId)
   } else if (action === 'remove') {
     const { error } = await supabase.rpc('unpick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

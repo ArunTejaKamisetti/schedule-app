@@ -4,8 +4,8 @@ import { fetchBothSheetTabs, parseSheetRows } from '@/lib/sheets'
 export async function GET() {
   try {
     const data = await fetchBothSheetTabs()
-    const parsed1 = parseSheetRows(data.sheet1, 'Term IV Schedule')
-    const parsed2 = parseSheetRows(data.sheet2, 'Course Details')
+    const parsed1 = parseSheetRows(data.sheet1)
+    const parsed2 = parseSheetRows(data.sheet2)
 
     return NextResponse.json({
       fetched_at: data.fetched_at,

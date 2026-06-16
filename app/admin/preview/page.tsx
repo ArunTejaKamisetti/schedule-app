@@ -5,8 +5,8 @@ export default async function AdminPreviewPage() {
   try {
     const { fetchBothSheetTabs, parseSheetRows } = await import('@/lib/sheets')
     const raw = await fetchBothSheetTabs()
-    const parsed1 = parseSheetRows(raw.sheet1, 'Term IV Schedule')
-    const parsed2 = parseSheetRows(raw.sheet2, 'Course Details')
+    const parsed1 = parseSheetRows(raw.sheet1)
+    const parsed2 = parseSheetRows(raw.sheet2)
     data = {
       fetched_at: raw.fetched_at,
       sheet1: { headers: raw.sheet1[0] ?? [], row_count: raw.sheet1.length - 1, sample: raw.sheet1.slice(0, 5), parsed_count: parsed1.length, parsed_sample: parsed1.slice(0, 5) },

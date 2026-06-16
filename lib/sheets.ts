@@ -1,5 +1,6 @@
 import { google } from 'googleapis'
-import type { CellFormat, RawSheetData } from './types'
+import type { CellFormat, RawSheetData, SheetMerge } from './types'
+import type { SheetSource } from './sheets-config'
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!
 const SCHEDULE_TAB = 'Term IV Schedule'
@@ -95,17 +96,17 @@ export function getArea(code: string): string {
   return 'Other'
 }
 
-// Parse the Course Details tab into an abbreviation → detail lookup map
-export function parseCourseDetails(rows: string[][]): Map<string, CourseDetail> {
+// Parse the Course Details tab into a lookup map.
+//  - division (2nd year): keyed by normalised abbr → {name, credits, faculty}.
+//  - section  (1st year): faculty is per section group, so additionally keyed by `ABBR|SECTION`
+//    (the abbr row carries name+credit; following rows give faculty for each section allocation).
+export function parseCourseDetails(rows: string[][], layout: 'division' | 'section' = 'division'): Map<string, CourseDetail> {
   const map = new Map<string, CourseDetail>()
   if (!rows || rows.length < 2) return map
 
   let headerIdx = -1
-  for (let i = 0; i < Math.min(rows.length, 5); i++) {
-    if (rows[i].some((cell) => /abbr/i.test(cell || ''))) {
-      headerIdx = i
-      break
-    }
+  for (let i = 0; i < Math.min(rows.length, 6); i++) {
+    if (rows[i].some((cell) => /abbr/i.test(cell || ''))) { headerIdx = i; break }
   }
   if (headerIdx === -1) return map
 
@@ -114,23 +115,51 @@ export function parseCourseDetails(rows: string[][]): Map<string, CourseDetail> 
   const nameCol = findCol(header, ['course', 'name', 'title'])
   const creditsCol = findCol(header, ['credit', 'credits', 'units'])
   const facultyCol = findCol(header, ['faculty', 'instructor', 'teacher', 'professor'])
+  const sectionCol = findCol(header, ['section'])
+  if (abbrCol === -1) return map
 
-  if (abbrCol === -1 || nameCol === -1) return map
+  if (layout === 'section') {
+    let curAbbr = '', curName = '', curCredit = ''
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row || row.every((c) => !c?.trim())) continue
+      const abbr = getCell(row, abbrCol).trim()
+      if (abbr) {
+        curAbbr = normAbbr(abbr)
+        curName = getCell(row, nameCol).trim()
+        curCredit = getCell(row, creditsCol).trim()
+        map.set(curAbbr, { name: curName, credits: curCredit, faculty: getCell(row, facultyCol).trim() })
+      }
+      if (!curAbbr) continue
+      const alloc = getCell(row, sectionCol).trim()
+      const faculty = getCell(row, facultyCol).trim()
+      if (!alloc || !faculty) continue
+      const secs = /all/i.test(alloc)
+        ? ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        : [...new Set(alloc.toUpperCase().replace(/[^A-H]/g, '').split('').filter(Boolean))]
+      for (const sec of secs) map.set(`${curAbbr}|${sec}`, { name: curName, credits: curCredit, faculty })
+    }
+    return map
+  }
 
+  if (nameCol === -1) return map
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i]
     if (!row || row.every((c) => !c?.trim())) continue
     const abbr = getCell(row, abbrCol).trim()
     const name = getCell(row, nameCol).trim()
     if (!abbr || !name) continue
-    map.set(normAbbr(abbr), {
-      name,
-      credits: getCell(row, creditsCol).trim(),
-      faculty: getCell(row, facultyCol).trim(),
-    })
+    map.set(normAbbr(abbr), { name, credits: getCell(row, creditsCol).trim(), faculty: getCell(row, facultyCol).trim() })
   }
-
   return map
+}
+
+// The Course-Details lookup key for a parsed row, given the source layout. For 1st year it is
+// `ABBR|SECTION` (with `ABBR` fallback for name/credit); for 2nd year it is getDetailAbbr.
+export function detailKey(code: string, sheetTab: string, layout: 'division' | 'section'): { primary: string; fallback: string } {
+  if (layout === 'section') return { primary: `${normAbbr(code)}|${sheetTab}`, fallback: normAbbr(code) }
+  const k = getDetailAbbr(code)
+  return { primary: k, fallback: k }
 }
 
 function getOAuth2Client() {
@@ -179,14 +208,18 @@ export function rgbToHex(
   return `#${h(r)}${h(g)}${h(b)}`
 }
 
-// Bucket a hex fill into the meaningful categories: red = cancelled, green = added.
+// Bucket a hex fill: red = cancelled, green = added, event = holiday/festival/exam (amber).
 // Uses relative channel dominance (not absolute thresholds) so pastel/light highlights
-// from Google Sheets (e.g. light red #f4cccc, light green #d9ead3) are still detected.
-export function classifyColor(hex: string | null): 'red' | 'green' | 'normal' {
+// (e.g. light red #f4cccc, light green #d9ead3) are still detected.
+export function classifyColor(hex: string | null): 'red' | 'green' | 'event' | 'normal' {
   if (!hex) return 'normal'
   const r = parseInt(hex.slice(1, 3), 16) / 255
   const g = parseInt(hex.slice(3, 5), 16) / 255
   const b = parseInt(hex.slice(5, 7), 16) / 255
+  // Amber/orange (#ffc000, #ff9900) = events/holidays/exams. Checked FIRST so it isn't read as
+  // a cancellation. Warm: red & green both substantial, blue near zero. (Light-red #f4cccc has
+  // HIGH blue, so it falls through to 'red'.)
+  if (r > 0.8 && g >= 0.4 && g < 0.95 && b < 0.4 && r - b > 0.4) return 'event'
   // Red channel clearly dominant over both others.
   if (r - g > 0.10 && r - b > 0.10) return 'red'
   // Green channel clearly dominant over both others.
@@ -194,31 +227,42 @@ export function classifyColor(hex: string | null): 'red' | 'green' | 'normal' {
   return 'normal'
 }
 
-// Fetch both tabs WITH per-cell formatting (background color + strikethrough) so the
-// diff can detect colour-based cancellations/additions. Falls back to plain values for
-// the Course Details tab (sheet2 formatting isn't needed).
-export async function fetchBothSheetTabsWithFormatting(): Promise<RawSheetData> {
+// Resolve a tab title from the sheet's tab list: explicit override → name match → index fallback.
+// Name-matching survives the per-term rename (Term IV → Term V Schedule) with no code change.
+function pickTab(titles: string[], explicit: string | undefined, re: RegExp, fallbackIdx: number): string {
+  if (explicit && titles.includes(explicit)) return explicit
+  if (explicit) return explicit
+  return titles.find((t) => re.test(t)) ?? titles[fallbackIdx] ?? titles[0] ?? ''
+}
+
+// Fetch a source's schedule + details tabs WITH per-cell formatting (bg colour + strikethrough)
+// and the schedule tab's merge ranges (to span grouped events across dates).
+export async function fetchBothSheetTabsWithFormatting(source: SheetSource): Promise<RawSheetData> {
   const auth = getOAuth2Client()
   const sheets = google.sheets({ version: 'v4', auth })
 
+  // Resolve tab names (auto-detect by default).
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: source.sheetId, fields: 'sheets.properties.title' })
+  const titles = (meta.data.sheets ?? []).map((s) => s.properties?.title ?? '').filter(Boolean)
+  const scheduleTab = pickTab(titles, source.scheduleTab, /schedule/i, 0)
+  const detailsTab = pickTab(titles, source.detailsTab, /course\s*detail/i, 1)
+
   const response = await sheets.spreadsheets.get({
-    spreadsheetId: SHEET_ID,
-    ranges: [`'${SCHEDULE_TAB}'`, `'${DETAILS_TAB}'`],
+    spreadsheetId: source.sheetId,
+    ranges: [`'${scheduleTab}'`, `'${detailsTab}'`],
     includeGridData: true,
     fields:
-      'sheets(properties.title,data.rowData.values(formattedValue,effectiveFormat(backgroundColor,textFormat.strikethrough)))',
+      'sheets(properties.title,merges,data.rowData.values(formattedValue,effectiveFormat(backgroundColor,textFormat.strikethrough)))',
   })
 
   const sheetsData = response.data.sheets ?? []
   const byTitle = new Map(sheetsData.map((s) => [s.properties?.title ?? '', s]))
-
-  const scheduleSheet = byTitle.get(SCHEDULE_TAB) ?? sheetsData[0]
-  const detailsSheet = byTitle.get(DETAILS_TAB) ?? sheetsData[1]
+  const scheduleSheet = byTitle.get(scheduleTab) ?? sheetsData[0]
+  const detailsSheet = byTitle.get(detailsTab) ?? sheetsData[1]
 
   const sheet1: string[][] = []
   const sheet1_format: CellFormat[][] = []
-  const scheduleRows = scheduleSheet?.data?.[0]?.rowData ?? []
-  for (const row of scheduleRows) {
+  for (const row of scheduleSheet?.data?.[0]?.rowData ?? []) {
     const values = row.values ?? []
     sheet1.push(values.map((c) => c.formattedValue ?? ''))
     sheet1_format.push(
@@ -228,19 +272,17 @@ export async function fetchBothSheetTabsWithFormatting(): Promise<RawSheetData> 
       }))
     )
   }
+  const merges: SheetMerge[] = (scheduleSheet?.merges ?? []).map((m) => ({
+    startRow: m.startRowIndex ?? 0, endRow: m.endRowIndex ?? 0,
+    startCol: m.startColumnIndex ?? 0, endCol: m.endColumnIndex ?? 0,
+  }))
 
   const sheet2: string[][] = []
-  const detailRows = detailsSheet?.data?.[0]?.rowData ?? []
-  for (const row of detailRows) {
+  for (const row of detailsSheet?.data?.[0]?.rowData ?? []) {
     sheet2.push((row.values ?? []).map((c) => c.formattedValue ?? ''))
   }
 
-  return {
-    sheet1,
-    sheet2,
-    sheet1_format,
-    fetched_at: new Date().toISOString(),
-  }
+  return { sheet1, sheet2, sheet1_format, merges, layout: source.layout, year: source.year, fetched_at: new Date().toISOString() }
 }
 
 export async function fetchSheetTabNames(): Promise<string[]> {
@@ -257,147 +299,151 @@ export async function fetchSheetTabNames(): Promise<string[]> {
   )
 }
 
-export function parseSheetRows(rows: string[][], sheetTab: string): ParsedCourse[] {
-  if (!rows || rows.length === 0) return []
-
-  // Detect matrix format: look for a row with section codes like D1, D2, E1, etc.
-  const sectionHeaderIdx = findSectionHeaderRow(rows)
-  if (sectionHeaderIdx !== -1) {
-    return parseScheduleMatrix(rows, sectionHeaderIdx)
-  }
-
-  // Fallback: flat list parser (used for Course Details tab)
-  return parseFlatList(rows, sheetTab)
+export interface ParseOpts {
+  layout?: 'division' | 'section'
+  format?: CellFormat[][]
+  merges?: SheetMerge[]
 }
 
-// ─── Matrix parser (Term IV Schedule) ────────────────────────────────────────
+export function parseSheetRows(rows: string[][], opts: ParseOpts = {}): ParsedCourse[] {
+  if (!rows || rows.length === 0) return []
+  const layout = opts.layout ?? 'division'
+  const sectionHeaderIdx = findSectionHeaderRow(rows, layout)
+  if (sectionHeaderIdx !== -1) return parseScheduleMatrix(rows, sectionHeaderIdx, layout, opts.format, opts.merges)
+  return parseFlatList(rows, 'Sheet1')
+}
 
-function findSectionHeaderRow(rows: string[][]): number {
+// ─── Matrix parser (schedule grid) ────────────────────────────────────────────
+
+function findSectionHeaderRow(rows: string[][], layout: 'division' | 'section'): number {
+  // division: D1/E2 codes. section: "Sec A" … "Sec H".
+  const re = layout === 'section' ? /^Sec\s+[A-H]$/i : /^[A-Z]\d+$/
   for (let i = 0; i < Math.min(rows.length, 12); i++) {
-    const row = rows[i]
-    // Match single-letter + digit section codes (D1, D2, E3) but not program codes (PGPFIN06)
-    const sectionCount = row.filter((cell) => /^[A-Z]\d+$/.test((cell || '').trim())).length
-    if (sectionCount >= 2) return i
+    const count = (rows[i] || []).filter((c) => re.test((c || '').trim())).length
+    if (count >= 2) return i
   }
   return -1
 }
 
-function parseScheduleMatrix(rows: string[][], sectionHeaderIdx: number): ParsedCourse[] {
+function parseScheduleMatrix(
+  rows: string[][], sectionHeaderIdx: number, layout: 'division' | 'section',
+  format?: CellFormat[][], merges?: SheetMerge[]
+): ParsedCourse[] {
   const sectionRow = rows[sectionHeaderIdx]
-  const programRow = sectionHeaderIdx > 0 ? rows[sectionHeaderIdx - 1] : []
+  const aboveRow = sectionHeaderIdx > 0 ? rows[sectionHeaderIdx - 1] : []
 
-  // Build section labels using fill-forward for merged program name cells
-  const sections: { col: number; label: string; code: string }[] = []
-  let lastProgram = ''
-  for (let col = 0; col < sectionRow.length; col++) {
-    const program = (programRow[col] || '').trim()
-    if (program) lastProgram = program
+  // Section columns. division: header is the section/division code (D1) and IS the room.
+  // section: header is "Sec A" → sheet_tab "A"; room = the cell in the row above (e.g. "CR A1").
+  const sections: { col: number; label: string; code: string; room: string }[] = []
+  if (layout === 'section') {
+    for (let col = 0; col < sectionRow.length; col++) {
+      const m = (sectionRow[col] || '').trim().match(/^Sec\s+([A-H])$/i)
+      if (!m) continue
+      sections.push({ col, code: m[1].toUpperCase(), label: m[1].toUpperCase(), room: (aboveRow[col] || '').trim() })
+    }
+  } else {
+    let lastProgram = ''
+    for (let col = 0; col < sectionRow.length; col++) {
+      const program = (aboveRow[col] || '').trim()
+      if (program) lastProgram = program
+      const sc = (sectionRow[col] || '').trim()
+      if (!sc || !/^[A-Z]+\d+$/.test(sc)) continue
+      sections.push({ col, code: sc, label: lastProgram ? `${lastProgram} ${sc}` : sc, room: sc })
+    }
+  }
+  if (sections.length === 0) return []
+  const sectionCols = sections.map((s) => s.col)
 
-    const sectionCode = (sectionRow[col] || '').trim()
-    if (!sectionCode || !/^[A-Z]+\d+$/.test(sectionCode)) continue
-
-    const label = lastProgram ? `${lastProgram} ${sectionCode}` : sectionCode
-    sections.push({ col, label, code: sectionCode })
+  // Fill-forward the date column so merged/grouped date cells still resolve per row.
+  const effDate: string[] = new Array(rows.length).fill('')
+  let cur = ''
+  for (let r = sectionHeaderIdx + 1; r < rows.length; r++) {
+    const d = parseFullDate(((rows[r] || [])[0] || '').trim())
+    if (d) cur = d
+    effDate[r] = cur
   }
 
-  if (sections.length === 0) return []
-
   const results: ParsedCourse[] = []
-  // Rows/cells that are non-academic filler — dropped entirely. ("MEETING" is a default
-  // recurring slot for everyone, so it is removed too.)
   const skipPattern = /lunch|\bbreak\b|registration|holiday|recess|\btea\b|meeting/i
-  // Rows that apply to everyone (exams etc.) — captured as common events.
   const commonPattern = /exam|mid.?term|end.?term|\bquiz\b|viva/i
+  const colState = (r: number, c: number) => classifyColor(format?.[r]?.[c]?.bgColor ?? null)
+  const emitted = new Set<string>() // dedup events by name|date
 
   for (let rowIdx = sectionHeaderIdx + 1; rowIdx < rows.length; rowIdx++) {
     const row = rows[rowIdx]
     if (!row || row.length < 2) continue
-
-    const dateStr = (row[0] || '').trim()
+    const isoDate = effDate[rowIdx]
+    if (!isoDate) continue
     const timeStr = (row[1] || '').trim()
-
-    if (!dateStr) continue
-
-    const day = parseDayFromDate(dateStr)
-    const isoDate = parseFullDate(dateStr)
-    if (!isoDate) continue // can't place a session without a real date
     const { start, end } = parseMatrixTimeRange(timeStr)
 
-    // Common events (exams) — show for everyone. Detect BEFORE requiring a time,
-    // since exam banner rows often have a date but no time. Default to a full-day window.
-    const bodyCells = row.slice(2).map((c) => (c || '').trim())
-    const commonCell = bodyCells.find((c) => commonPattern.test(c))
-    if (commonCell || commonPattern.test(dateStr) || commonPattern.test(timeStr)) {
-      const name = commonCell || bodyCells.find(Boolean) || dateStr
-      const code = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `COMMON_${rowIdx}`
-      // Exam banners are merged cells spanning the following empty dated rows
-      // (e.g. MID TERM over Sat+Sun). Cover every date in that span.
-      const spanDates = new Set<string>([isoDate])
-      for (let k = rowIdx + 1; k < rows.length; k++) {
-        const nr = rows[k] || []
-        const nIso = parseFullDate((nr[0] || '').trim())
-        if (!nIso) break // blank row → end of the merged exam block
-        const resumes = nr.slice(2, 10).some((c) => {
-          const v = (c || '').trim()
-          return v && !skipPattern.test(v) && !commonPattern.test(v)
-        })
-        if (resumes) break // classes resumed → exam block over
-        spanDates.add(nIso)
-        if (spanDates.size > 14) break
-      }
-      for (const d of spanDates) {
+    // Event/holiday/exam: an amber-coloured body cell with text, OR exam text. Common to everyone.
+    let eventName = ''
+    for (const s of sections) {
+      const v = (row[s.col] || '').trim()
+      if (!v) continue
+      if (colState(rowIdx, s.col) === 'event' || commonPattern.test(v)) { eventName = v; break }
+    }
+    if (eventName) {
+      const kind: ParsedCourse['event_kind'] = commonPattern.test(eventName) ? 'exam' : 'event'
+      const code = eventName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `EVENT_${rowIdx}`
+      for (const d of eventDates(rowIdx, sectionCols, merges, effDate, rows, skipPattern, commonPattern)) {
+        const dk = `${code}|${d}`
+        if (emitted.has(dk)) continue
+        emitted.add(dk)
         results.push({
-          course_code: code,
-          course_name: name,
-          instructor: '',
-          day_of_week: isoWeekday(d),
-          session_date: d,
-          start_time: start || '09:00',
-          end_time: end || '17:00',
-          room: '',
-          credits: '',
-          sheet_tab: 'COMMON',
-          sheet_row_index: rowIdx,
-          is_common: true,
-          event_kind: 'exam',
+          course_code: code, course_name: eventName, instructor: '',
+          day_of_week: isoWeekday(d), session_date: d,
+          start_time: start || '09:00', end_time: end || '17:00',
+          room: '', credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
+          is_common: true, event_kind: kind,
         })
       }
       continue
     }
 
-    // Regular classes require a time.
-    if (!timeStr) continue
-    if (skipPattern.test(dateStr) || skipPattern.test(timeStr)) continue
-
-    for (const section of sections) {
-      // Skip filler cells (LUNCH BREAK, MEETING, …) per-column — never short-circuit the
-      // whole row, or a banner in the first division would drop real classes in the others.
-      // Keep the raw code (trim only) so enrolment-by-code stays stable; display names are
-      // cleaned downstream (the one multi-line cell, "YMHC\nMN Common Room", renders fine
-      // because HTML collapses the newline).
-      const courseCode = (row[section.col] || '').trim()
-      if (!courseCode || skipPattern.test(courseCode)) continue
-
+    // Regular classes need a time.
+    if (!timeStr || skipPattern.test(timeStr)) continue
+    const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
+    for (const s of sections) {
+      const code = (row[s.col] || '').trim()
+      if (!code || skipPattern.test(code)) continue
       results.push({
-        course_code: courseCode,
-        course_name: courseCode,
-        instructor: '',
-        day_of_week: day,
-        session_date: isoDate,
-        start_time: start,
-        end_time: end,
-        room: section.code, // the division (D1/E1/…) is the class/room identifier in this sheet
-        credits: '',
-        sheet_tab: section.label,
-        sheet_row_index: rowIdx,
-        sheet_col: section.col, // exact column → colour is read from THIS cell, not by code search
-        is_common: false,
-        event_kind: 'class',
+        course_code: code, course_name: code, instructor: '',
+        day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
+        room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
+        is_common: false, event_kind: 'class',
       })
     }
   }
-
   return results
+}
+
+// Dates an event covers: the merge spanning its section cells (precise), else this row plus the
+// following blank-dated rows (the legacy banner heuristic, for snapshots without merge data).
+function eventDates(
+  rowIdx: number, sectionCols: number[], merges: SheetMerge[] | undefined,
+  effDate: string[], rows: string[][], skipPattern: RegExp, commonPattern: RegExp
+): string[] {
+  const set = new Set<string>()
+  const merge = (merges ?? []).find(
+    (m) => rowIdx >= m.startRow && rowIdx < m.endRow && sectionCols.some((c) => c >= m.startCol && c < m.endCol)
+  )
+  if (merge) {
+    for (let r = merge.startRow; r < merge.endRow; r++) if (effDate[r]) set.add(effDate[r])
+    return [...set]
+  }
+  if (effDate[rowIdx]) set.add(effDate[rowIdx])
+  for (let k = rowIdx + 1; k < rows.length && set.size <= 14; k++) {
+    const nr = rows[k] || []
+    const resumes = sectionCols.some((c) => {
+      const v = (nr[c] || '').trim()
+      return v && !skipPattern.test(v) && !commonPattern.test(v)
+    })
+    if (resumes) break
+    if (effDate[k]) set.add(effDate[k]); else break
+  }
+  return [...set]
 }
 
 function parseDayFromDate(dateStr: string): string {
@@ -417,16 +463,23 @@ const MONTHS: Record<string, string> = {
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
 }
 
-// Parse "Tuesday, 9 June, 2026" / "9 Jun 2026" → "2026-06-09". Returns '' if unparseable.
-// Built string-wise (no Date object) to avoid timezone shifts.
-function parseFullDate(dateStr: string): string {
-  const m = dateStr.match(/(\d{1,2})\s*[-/ ]?\s*([A-Za-z]{3,})[,\s]+(\d{4})/)
-  if (!m) return ''
-  const day = m[1].padStart(2, '0')
-  const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
-  const year = m[3]
-  if (!month) return ''
-  return `${year}-${month}-${day}`
+// Parse a sheet date to "YYYY-MM-DD" (string-wise, no Date object, to avoid TZ shifts).
+// Handles both day-first ("Tuesday, 9 June, 2026") and month-first ("Tuesday, January 6, 2026");
+// the weekday prefix is naturally rejected because it isn't a valid month.
+export function parseFullDate(dateStr: string): string {
+  // Day-first: "9 June, 2026"
+  let m = dateStr.match(/(\d{1,2})\s*[-/ ]?\s*([A-Za-z]{3,})[,\s]+(\d{4})/)
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
+    if (month) return `${m[3]}-${month}-${m[1].padStart(2, '0')}`
+  }
+  // Month-first: "January 6, 2026"
+  m = dateStr.match(/([A-Za-z]{3,})\s+(\d{1,2})[,\s]+(\d{4})/)
+  if (m) {
+    const month = MONTHS[m[1].slice(0, 3).toLowerCase()]
+    if (month) return `${m[3]}-${month}-${m[2].padStart(2, '0')}`
+  }
+  return ''
 }
 
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -526,7 +579,7 @@ export interface ParsedCourse {
   sheet_row_index: number
   sheet_col?: number       // exact matrix column of this session's cell (for precise colour reads)
   is_common: boolean
-  event_kind: 'class' | 'exam' | 'common'
+  event_kind: 'class' | 'exam' | 'common' | 'event'
   is_cancelled?: boolean   // derived from cell colour/strikethrough during diff
   change_kind?: string     // set by the diff when this session changed
   change_note?: string

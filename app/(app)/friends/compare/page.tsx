@@ -17,7 +17,7 @@ function timeMin(t: string | null): number {
 }
 
 function CompareContent() {
-  const { userId } = useSession()
+  const { userId, user } = useSession()
   const params = useSearchParams()
   const friendId = params.get('friendId')
   const [mine, setMine] = useState<Course[]>([])
@@ -33,7 +33,7 @@ function CompareContent() {
       fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
       fetch(`/api/courses/user?userId=${friendId}`).then((r) => r.json()),
       fetch(`/api/friends?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses?common=1`).then((r) => r.json()),
+      fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()),
     ]).then(([m, t, friends, cmn]: [{ courses: Course }[], { courses: Course }[], { friend_id: string; friend: { display_name: string } }[], Course[]]) => {
       setMine((m ?? []).map((d) => d.courses).filter(Boolean))
       setTheirs((t ?? []).map((d) => d.courses).filter(Boolean))
@@ -42,7 +42,7 @@ function CompareContent() {
       if (f?.friend?.display_name) setFriendName(f.friend.display_name)
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [userId, friendId])
+  }, [userId, friendId, user?.year])
 
   // Include common events (mid/end-term exams) so the strip covers the whole term to 31 Aug —
   // both friends "share" those days. Enrolled classes alone stop in mid-August.

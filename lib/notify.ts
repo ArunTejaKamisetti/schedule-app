@@ -18,65 +18,70 @@ function initVapid() {
   }
 }
 
-export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void> {
-  if (changes.length === 0) return
+type Recipient = NotifPrefs & { id: string; push_subscription: PushSubscriptionJSON | null }
 
+// Honour per-type notification preferences (Settings checkboxes).
+function wantsChange(prefs: NotifPrefs, type: CourseChange['type']): boolean {
+  switch (type) {
+    case 'cancelled': return prefs.notify_cancelled !== false
+    case 'rescheduled': return prefs.notify_rescheduled !== false
+    case 'room_change': return prefs.notify_room !== false
+    default: return true // added | removed | schedule_update
+  }
+}
+
+export async function notifyAffectedUsers(changes: CourseChange[], year: 1 | 2 = 2): Promise<void> {
+  if (changes.length === 0) return
   const supabase = createServiceClient()
 
-  // Get all course IDs affected
+  // course_code → id (this year) for the notification row's course_id.
   const affectedCodes = [...new Set(changes.map((c) => c.course_code))]
+  const { data: coursesRaw } = await supabase
+    .from('courses').select('id, course_code').eq('year', year).in('course_code', affectedCodes)
+  const courses = (coursesRaw ?? []) as { id: string; course_code: string }[]
+  const courseIdMap = new Map(courses.map((c) => [c.course_code, c.id] as [string, string]))
 
-  // Find courses in DB with those codes
-  const { data: courses } = await supabase
-    .from('courses')
-    .select('id, course_code, course_name')
-    .in('course_code', affectedCodes)
+  // Resolve recipients → their relevant changes. 1st-year users are matched by SECTION; 2nd-year
+  // users by their enrolled course codes.
+  const perUser = new Map<string, { sub: PushSubscriptionJSON | null; notifs: CourseChange[] }>()
+  const subByUser = new Map<string, PushSubscriptionJSON | null>()
 
-  if (!courses || courses.length === 0) return
-
-  const courseIdMap = new Map(courses.map((c) => [c.course_code, c]))
-
-  // Find all users enrolled in affected courses
-  const courseIds = courses.map((c) => c.id)
-  const { data: enrollments } = await supabase
-    .from('user_courses')
-    .select('user_id, course_id, users(id, push_subscription, notify_cancelled, notify_rescheduled, notify_room)')
-    .in('course_id', courseIds)
-
-  if (!enrollments) return
-
-  // Honour per-type notification preferences (Settings checkboxes).
-  function wantsChange(prefs: NotifPrefs, type: CourseChange['type']): boolean {
-    switch (type) {
-      case 'cancelled': return prefs.notify_cancelled !== false
-      case 'rescheduled': return prefs.notify_rescheduled !== false
-      case 'room_change': return prefs.notify_room !== false
-      default: return true // added | removed | schedule_update
+  if (year === 1) {
+    const sections = [...new Set(changes.map((c) => c.new?.sheet_tab ?? c.old?.sheet_tab).filter((s): s is string => !!s && s !== 'COMMON'))]
+    if (sections.length === 0) return
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, push_subscription, section, notify_cancelled, notify_rescheduled, notify_room')
+      .eq('year', 1).in('section', sections)
+    for (const u of (users ?? []) as (Recipient & { section: string })[]) {
+      const relevant = changes.filter((ch) => (ch.new?.sheet_tab ?? ch.old?.sheet_tab) === u.section && wantsChange(u, ch.type))
+      if (relevant.length === 0) continue
+      perUser.set(u.id, { sub: u.push_subscription, notifs: relevant })
+      subByUser.set(u.id, u.push_subscription)
+    }
+  } else {
+    if (courses.length === 0) return
+    const codeById = new Map(courses.map((c) => [c.id, c.course_code] as [string, string]))
+    const { data: enrollments } = await supabase
+      .from('user_courses')
+      .select('user_id, course_id, users(id, push_subscription, notify_cancelled, notify_rescheduled, notify_room)')
+      .in('course_id', courses.map((c) => c.id))
+    for (const enrollment of enrollments ?? []) {
+      const user = (enrollment as any).users as Recipient | null
+      if (!user) continue
+      const code = codeById.get((enrollment as { course_id: string }).course_id)
+      if (!code) continue
+      const relevant = changes.filter((ch) => ch.course_code === code && wantsChange(user, ch.type))
+      if (relevant.length === 0) continue
+      if (!perUser.has(user.id)) perUser.set(user.id, { sub: user.push_subscription, notifs: [] })
+      perUser.get(user.id)!.notifs.push(...relevant)
+      subByUser.set(user.id, user.push_subscription)
     }
   }
 
-  // course_id → course (avoids an O(enrollments × courses) .find at 500-student scale).
-  const courseById = new Map(courses.map((c) => [c.id, c]))
-
-  // Per-user relevant changes (honouring the Settings prefs).
-  const perUser = new Map<string, { sub: PushSubscriptionJSON | null; notifs: CourseChange[] }>()
-  for (const enrollment of enrollments) {
-    const user = (enrollment as any).users as (NotifPrefs & { id: string; push_subscription: PushSubscriptionJSON | null }) | null
-    if (!user) continue
-    const course = courseById.get((enrollment as { course_id: string }).course_id)
-    if (!course) continue
-    const relevant = changes.filter((ch) => ch.course_code === course.course_code && wantsChange(user, ch.type))
-    if (relevant.length === 0) continue
-    if (!perUser.has(user.id)) perUser.set(user.id, { sub: user.push_subscription, notifs: [] })
-    perUser.get(user.id)!.notifs.push(...relevant)
-  }
-
-  // Build ALL alert rows across every affected user (deduped within each user), then do ONE
-  // bulk idempotent insert — instead of a query per user. Scales to hundreds of recipients.
-  const subByUser = new Map<string, PushSubscriptionJSON | null>()
+  // Build ALL alert rows (deduped within each user), then do ONE bulk idempotent insert.
   const allRows: NotifRow[] = []
-  for (const [userId, { sub, notifs }] of perUser) {
-    subByUser.set(userId, sub)
+  for (const [userId, { notifs }] of perUser) {
     const seen = new Set<string>()
     for (const ch of notifs) {
       const k = dedupKey(ch)
@@ -84,7 +89,7 @@ export async function notifyAffectedUsers(changes: CourseChange[]): Promise<void
       seen.add(k)
       allRows.push({
         user_id: userId, title: buildTitle(ch), body: buildBody(ch), type: ch.type,
-        course_id: courseIdMap.get(ch.course_code)?.id ?? null, read: false, dedup_key: k,
+        course_id: courseIdMap.get(ch.course_code) ?? null, read: false, dedup_key: k,
       })
     }
   }

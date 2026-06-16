@@ -25,12 +25,17 @@ function parsedToPartial(p: ParsedCourse): Partial<Course> {
 // Coordinators mark cells by colour: red (or strikethrough) = cancelled, green = added/new.
 // Reads the EXACT cell the parser used (row + column), so a course code that appears in several
 // columns of one row can never have its colour read from the wrong (first) cell.
-function cellState(format: CellFormat[][] | undefined, rowIndex: number, colIndex: number | undefined): 'red' | 'green' | 'normal' {
+function cellState(format: CellFormat[][] | undefined, rowIndex: number, colIndex: number | undefined): 'red' | 'green' | 'event' | 'normal' {
   if (!format || colIndex == null || colIndex < 0) return 'normal'
   const fmt = format[rowIndex]?.[colIndex]
   if (!fmt) return 'normal'
   if (fmt.strikethrough) return 'red'
   return classifyColor(fmt.bgColor)
+}
+
+// Re-parse a snapshot's schedule grid with its source layout + formatting + merges.
+function parseSnapshot(d: RawSheetData): ParsedCourse[] {
+  return parseSheetRows(d.sheet1, { layout: d.layout ?? 'division', format: d.sheet1_format, merges: d.merges })
 }
 
 export interface DiffResult {
@@ -50,7 +55,7 @@ function slotKey(c: { session_date: string; start_time: string; sheet_tab: strin
 export function diffSheetData(previousSnapshot: RawSheetData | null, newData: RawSheetData): DiffResult {
   const newState = (c: ParsedCourse) => cellState(newData.sheet1_format, c.sheet_row_index, c.sheet_col)
 
-  const newAll = parseSheetRows(newData.sheet1, 'Sheet1')
+  const newAll = parseSnapshot(newData)
   for (const c of newAll) {
     c.is_cancelled = newState(c) === 'red'
   }
@@ -67,7 +72,7 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
 
   const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1_format, c.sheet_row_index, c.sheet_col)
 
-  const oldAll = parseSheetRows(previousSnapshot.sheet1, 'Sheet1')
+  const oldAll = parseSnapshot(previousSnapshot)
   for (const c of oldAll) {
     c.is_cancelled = oldState(c) === 'red'
   }

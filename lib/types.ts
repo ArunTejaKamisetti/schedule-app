@@ -12,9 +12,11 @@ export interface Course {
   area: string | null
   sheet_tab: string
   sheet_row_index: number | null
+  year?: number | null          // 1 or 2 (defaults to 2 in the DB)
+  source_key?: string | null    // which sheet this row came from ('y2', 'y1-AH', …)
   is_cancelled: boolean
   is_common: boolean
-  event_kind: 'class' | 'exam' | 'common'
+  event_kind: 'class' | 'exam' | 'common' | 'event'
   change_kind: string | null
   change_note: string | null
   last_changed_at: string | null
@@ -26,6 +28,8 @@ export interface User {
   share_code: string
   import_code?: string
   display_name: string | null
+  year?: number | null         // 1 or 2 (null = unset → 2nd-year electives)
+  section?: string | null      // 1st-year section (A–H/LSM/FIN)
   push_subscription: PushSubscriptionJSON | null
   notify_push: boolean
   notify_cancelled?: boolean
@@ -80,10 +84,21 @@ export interface CellFormat {
   strikethrough: boolean
 }
 
+// A merged cell region (0-based, end-exclusive) — used to span grouped events across dates.
+export interface SheetMerge {
+  startRow: number
+  endRow: number
+  startCol: number
+  endCol: number
+}
+
 export interface RawSheetData {
   sheet1: string[][]
   sheet2: string[][]
   sheet1_format?: CellFormat[][]
+  merges?: SheetMerge[]
+  layout?: 'division' | 'section'   // how to parse the section header (per source)
+  year?: 1 | 2
   fetched_at: string
 }
 

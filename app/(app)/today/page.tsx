@@ -48,7 +48,7 @@ const TERM_DATES: string[] = (() => {
 })()
 
 export default function TodayPage() {
-  const { userId, unreadCount } = useSession()
+  const { userId, user, unreadCount } = useSession()
   const [mySessions, setMySessions] = useState<Course[]>([])
   const [commonEvents, setCommonEvents] = useState<Course[]>([])
   const [attendance, setAttendance] = useState<Record<string, string>>({})
@@ -120,7 +120,7 @@ export default function TodayPage() {
     if (!userId) return
     Promise.all([
       fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses?common=1`).then((r) => r.json()),
+      fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()),
       fetch(`/api/attendance?userId=${userId}`).then((r) => r.json()),
       fetch(`/api/notes?userId=${userId}`).then((r) => r.json()),
     ])
@@ -134,7 +134,7 @@ export default function TodayPage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [userId])
+  }, [userId, user?.year])
 
   const allForDate = useMemo(() => {
     const merged = [...mySessions, ...commonEvents].filter((c) => c.session_date === selectedDate)

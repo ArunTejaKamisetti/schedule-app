@@ -8,18 +8,28 @@ export async function GET(req: NextRequest) {
   const from = params.get('from') // YYYY-MM-DD inclusive
   const to = params.get('to')     // YYYY-MM-DD inclusive
 
-  // Catalog: one representative row per course_code (for the picker) — avoids the
-  // 1000-row cap missing courses that only appear later in the term.
+  // Catalog: one representative row per course_code (2nd-year elective picker only — the RPC
+  // filters year = 2). Avoids the 1000-row cap missing late-term courses.
   if (params.get('catalog')) {
     const { data, error } = await supabase.rpc('course_catalog')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json(data)
   }
 
-  // Common events (exams) only — small set, shown to everyone.
-  if (params.get('common')) {
+  // 1st-year sections that have a timetable loaded (distinct sheet_tab where year = 1).
+  if (params.get('year1sections')) {
     const { data, error } = await supabase
-      .from('courses').select('*').eq('is_common', true).order('session_date')
+      .from('courses').select('sheet_tab').eq('year', 1).eq('is_common', false)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json([...new Set((data ?? []).map((r: { sheet_tab: string }) => r.sheet_tab))].sort())
+  }
+
+  // Common events (exams/holidays) — shown to everyone of that year.
+  if (params.get('common')) {
+    let q = supabase.from('courses').select('*').eq('is_common', true).order('session_date')
+    const year = params.get('year')
+    if (year) q = q.eq('year', Number(year))
+    const { data, error } = await q
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json(data)
   }

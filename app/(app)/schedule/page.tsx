@@ -51,7 +51,7 @@ function recentlyChanged(c: Course): boolean {
 }
 
 export default function SchedulePage() {
-  const { userId } = useSession()
+  const { userId, user } = useSession()
   const todayISO = localISO(new Date())
   const [weekStart, setWeekStart] = useState(weekStartISO(new Date()))
   const [windowCourses, setWindowCourses] = useState<Course[]>([])
@@ -105,10 +105,12 @@ export default function SchedulePage() {
       .catch(() => setLoading(false))
   }, [weekDates])
 
-  // Courses to display for the week: my picks + common events (exams).
+  // Courses to display for the week: my picks + common events (exams) for MY year only — the
+  // window fetch now returns both years' rows, so scope common events by the viewer's year.
+  const myYear = user?.year === 1 ? 1 : 2
   const visible = useMemo(
-    () => windowCourses.filter((c) => c.is_common || selectedIds.has(c.id)),
-    [windowCourses, selectedIds]
+    () => windowCourses.filter((c) => c.is_common ? (c.year ?? 2) === myYear : selectedIds.has(c.id)),
+    [windowCourses, selectedIds, myYear]
   )
 
   const byDate = useMemo(() => {
