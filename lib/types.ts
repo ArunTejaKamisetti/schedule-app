@@ -25,6 +25,8 @@ export interface Course {
 
 export interface User {
   id: string
+  email?: string | null         // college email (from Supabase Auth)
+  role?: 'student' | 'admin'    // access level
   share_code: string
   import_code?: string
   display_name: string | null

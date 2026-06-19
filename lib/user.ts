@@ -10,7 +10,17 @@ function generateShareCode(): string {
   return code
 }
 
-export async function getOrCreateUser(userId: string): Promise<User> {
+// Emails (comma-separated in ADMIN_EMAILS) that get the admin role on first sign-in.
+function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false
+  const admins = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+  return admins.includes(email.toLowerCase())
+}
+
+export async function getOrCreateUser(userId: string, email?: string | null): Promise<User> {
   const supabase = createServiceClient()
 
   const { data: existing } = await supabase
@@ -20,11 +30,10 @@ export async function getOrCreateUser(userId: string): Promise<User> {
     .single()
 
   if (existing) {
-    await supabase
-      .from('users')
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq('id', userId)
-    return existing as User
+    const patch: Record<string, unknown> = { last_seen_at: new Date().toISOString() }
+    if (email && !existing.email) patch.email = email
+    await supabase.from('users').update(patch).eq('id', userId)
+    return { ...existing, ...patch } as User
   }
 
   let shareCode = generateShareCode()
@@ -42,7 +51,13 @@ export async function getOrCreateUser(userId: string): Promise<User> {
 
   const { data: newUser, error } = await supabase
     .from('users')
-    .insert({ id: userId, share_code: shareCode, import_code: generateShareCode() })
+    .insert({
+      id: userId,
+      email: email ?? null,
+      role: isAdminEmail(email) ? 'admin' : 'student',
+      share_code: shareCode,
+      import_code: generateShareCode(),
+    })
     .select()
     .single()
 

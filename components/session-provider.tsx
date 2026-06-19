@@ -1,23 +1,26 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { getOrCreateSessionId, setSessionCode, applyRecoveryTokenFromUrl } from '@/lib/session'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import type { User } from '@/lib/types'
 
 interface SessionContextValue {
   userId: string
   user: User | null
   shareCode: string
+  role: 'student' | 'admin' | null
   unreadCount: number
   refreshUnreadCount: () => void
+  signOut: () => Promise<void>
 }
 
 const SessionContext = createContext<SessionContextValue>({
   userId: '',
   user: null,
   shareCode: '',
+  role: null,
   unreadCount: 0,
   refreshUnreadCount: () => {},
+  signOut: async () => {},
 })
 
 export function useSession() {
@@ -27,11 +30,12 @@ export function useSession() {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState('')
   const [user, setUser] = useState<User | null>(null)
-  const [shareCode, setShareCodeState] = useState('')
+  const [shareCode, setShareCode] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
+  const userIdRef = useRef('')
 
   const refreshUnreadCount = useCallback(async () => {
-    const id = getOrCreateSessionId()
+    const id = userIdRef.current
     if (!id) return
     const res = await fetch(`/api/notifications?userId=${id}`)
     if (!res.ok) return
@@ -40,35 +44,45 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    // Apply a recovery link (?t=<userId>) before resolving the session id.
-    applyRecoveryTokenFromUrl()
-    const id = getOrCreateSessionId()
-    setUserId(id)
-
-    // Register/load user
-    fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: id }),
-    })
-      .then((r) => r.json())
-      .then((u: User) => {
+    // Identity comes from the authenticated Supabase session (set by the
+    // /auth/callback route). The API derives the user from that session cookie.
+    fetch('/api/user', { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u: User | null) => {
+        if (!u) return
         setUser(u)
-        setShareCodeState(u.share_code)
-        setSessionCode(u.share_code)
+        setUserId(u.id)
+        userIdRef.current = u.id
+        setShareCode(u.share_code)
+        refreshUnreadCount()
       })
       .catch(console.error)
 
-    // Register service worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
     }
-
-    refreshUnreadCount()
   }, [refreshUnreadCount])
 
+  const signOut = useCallback(async () => {
+    try {
+      await fetch('/auth/signout', { method: 'POST' })
+    } finally {
+      window.location.assign('/sign-in')
+    }
+  }, [])
+
   return (
-    <SessionContext.Provider value={{ userId, user, shareCode, unreadCount, refreshUnreadCount }}>
+    <SessionContext.Provider
+      value={{
+        userId,
+        user,
+        shareCode,
+        role: (user?.role as 'student' | 'admin') ?? null,
+        unreadCount,
+        refreshUnreadCount,
+        signOut,
+      }}
+    >
       {children}
     </SessionContext.Provider>
   )

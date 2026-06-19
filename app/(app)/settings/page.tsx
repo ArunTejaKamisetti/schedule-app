@@ -24,7 +24,7 @@ const PREF_LABELS: { key: PrefKey; label: string }[] = [
 const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
 
 export default function SettingsPage() {
-  const { userId, shareCode, user } = useSession()
+  const { userId, shareCode, user, signOut } = useSession()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -390,6 +390,13 @@ export default function SettingsPage() {
             <p><span className="font-medium text-foreground">Your data</span>: stored on device + cloud, no sign-in needed</p>
             <p className="font-mono text-[10px] opacity-60 pt-1">User ID: {userId?.slice(0, 8)}…</p>
           </div>
+        </Section>
+
+        {/* Account */}
+        <Section title="Account">
+          <Button onClick={signOut} variant="outline" className="w-full justify-center gap-2 h-12 text-red-600 dark:text-red-400">
+            Sign out
+          </Button>
         </Section>
 
         <p className="text-center text-[11px] text-muted-foreground/70 pt-1 pb-2">
