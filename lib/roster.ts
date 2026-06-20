@@ -4,8 +4,8 @@ import type { Year1RosterEntry, Year2RosterEntry } from './roster-parse'
 
 type SB = ReturnType<typeof createServiceClient>
 
-// Upsert roster rows (one per email; re-upload replaces a student's row) and immediately apply
-// to any students who have ALREADY signed in. Students who sign in later get applied on sign-in
+// Store roster rows (authoritative per YEAR — see upsertAndApply) and immediately apply to any
+// students who have ALREADY signed in. Students who sign in later get applied on sign-in
 // (lib/user.ts → applyRosterOnSignIn), so upload order vs sign-in order doesn't matter.
 export async function storeYear1Roster(supabase: SB, entries: Year1RosterEntry[]) {
   const rows = entries.map((e) => ({ email: e.email, year: 1, section: e.section, codes: [] }))
@@ -20,10 +20,14 @@ export async function storeYear2Roster(supabase: SB, entries: Year2RosterEntry[]
 type RosterRow = { email: string; year: number; section: string | null; codes: string[] }
 
 async function upsertAndApply(supabase: SB, rows: RosterRow[]): Promise<{ stored: number; applied: number }> {
-  if (rows.length === 0) return { stored: 0, applied: 0 }
-  const stamped = rows.map((r) => ({ ...r, uploaded_at: new Date().toISOString() }))
-  const { error } = await supabase.from('roster').upsert(stamped, { onConflict: 'email' })
-  if (error) throw new Error(`Roster upsert failed: ${error.message}`)
+  if (rows.length === 0) return { stored: 0, applied: 0 } // an empty file never clears a year (safety)
+
+  // Authoritative: REPLACE this year's entire roster slice atomically (emails no longer listed are
+  // dropped), so `roster` always reflects exactly the current students. All rows share one year.
+  const year = rows[0].year
+  const payload = rows.map((r) => ({ email: r.email, section: r.section, codes: r.codes }))
+  const { error } = await supabase.rpc('replace_roster_year', { p_year: year, p_rows: payload })
+  if (error) throw new Error(`Roster replace failed: ${error.message}`)
 
   // Apply to already-registered users (emails stored lowercase since getOrCreateUser normalizes).
   const emails = rows.map((r) => r.email)

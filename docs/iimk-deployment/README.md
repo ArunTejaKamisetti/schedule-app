@@ -46,7 +46,9 @@ Order: 0 → 1 (auth is the foundation for RLS) → 2 → 3 → 4, with Phase 5 
 
 **Security headers (Phase 5 §6) done** — `next.config.ts#headers()` sets CSP (connect-src locked to this deploy's Supabase origin; dev loosened for Turbopack HMR), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Verified emitted locally.
 
-**Remaining (manual/ops at handover):** Phase 4 secret **rotation** runbook; apply migrations 013–016 to the live DB; optional `calendar_token` hardening; optional Phase 5 §4 rate limiting, §8 admin audit-log table, §10 Dependabot, §12 monitoring.
+**Roster-authoritative pruning (migration 018) done.** The two rosters (Y1 + Y2) are the source of truth for "who is a current student": roster upload now REPLACES that year's slice (`replace_roster_year`, was an additive upsert), and an admin-confirmed prune removes students in no roster (dashboard "Students who have left" → `/api/admin/reconcile` → `prune_departed_students`; cascade clears their enrollments/friends/notes/attendance/tokens). Guards: DB refuses an empty-roster wipe, admins are exempt, UI warns on a missing-year roster or >30% removal. Courses already self-replace per `source_key`. Auth identities (`auth.users`) intentionally left in place. **Operational rule: upload BOTH rosters before reconciling.** Covered by `tests/db-reconcile.test.ts` + `tests/reconcile.test.ts` (pglite harness).
+
+**Remaining (manual/ops at handover):** Phase 4 secret **rotation** runbook; apply migrations 013–018 to the live DB; optional `calendar_token` hardening; optional Phase 5 §4 rate limiting, §8 admin audit-log table, §10 Dependabot, §12 monitoring.
 
 **Biggest DB win (from real data):** `user_courses` is 52,839 rows because enrollment is stored per *session*; pointing enrollment at the course master collapses it ~10× to ~5–6k. See [02-database.md](02-database.md).
 

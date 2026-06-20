@@ -125,6 +125,8 @@ export default function AdminDashboard() {
             <a href="/admin/roster" style={{ color: '#4f46e5', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Upload rosters →</a>
           </Card>
 
+          <LeftStudents />
+
           <Card>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Term schedule</h2>
             <p style={{ color: '#64748b', fontSize: 14, marginBottom: 10 }}>
@@ -156,5 +158,117 @@ function Stat({ label, value, sub }: { label: string; value: number; sub?: strin
       <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{label}</p>
       {sub && <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{sub}</p>}
     </div>
+  )
+}
+
+interface Reconcile {
+  count: number
+  sample: { email: string | null; display_name: string | null }[]
+  warning: string | null
+  error?: string
+}
+
+// "Students who have left" — anyone not in the current Y1 or Y2 roster. Preview + explicit confirm,
+// then a hard delete (cascade clears their data). See /api/admin/reconcile and migration 018.
+function LeftStudents() {
+  const [data, setData] = useState<Reconcile | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/admin/reconcile').then((r) => r.json()).then((d: Reconcile) => { if (active) setData(d) }).catch(() => {})
+    return () => { active = false }
+  }, [])
+
+  async function reload() {
+    try { setData(await (await fetch('/api/admin/reconcile')).json()) } catch {}
+  }
+
+  async function remove() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await fetch('/api/admin/reconcile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+      })
+      const j = await r.json().catch(() => ({}))
+      setMsg(r.ok ? `Removed ${j.removed} student(s).` : (j.error ?? `Failed (${r.status})`))
+      setConfirming(false)
+      await reload()
+    } catch {
+      setMsg('Request failed — is the dev server running?')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const extra = data ? data.count - data.sample.length : 0
+
+  return (
+    <Card>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Students who have left</h2>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 10 }}>
+        Anyone not in the current 1st- or 2nd-year roster. Upload <b>both</b> rosters first, then remove.
+      </p>
+      {!data ? (
+        <p style={{ color: '#64748b', fontSize: 14 }}>Loading…</p>
+      ) : data.error ? (
+        <p style={{ color: '#b91c1c', fontSize: 14 }}>{data.error}</p>
+      ) : (
+        <>
+          {data.warning && (
+            <p style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 8, padding: '8px 10px', fontSize: 13, marginBottom: 10 }}>
+              ⚠ {data.warning}
+            </p>
+          )}
+          {data.count === 0 ? (
+            <p style={{ color: '#15803d', fontSize: 14 }}>Roster is up to date — no students to remove.</p>
+          ) : (
+            <>
+              <p style={{ fontSize: 14, marginBottom: 6 }}>{data.count} student(s) are no longer in any roster:</p>
+              <ul style={{ fontSize: 13, color: '#334155', margin: '0 0 10px 18px' }}>
+                {data.sample.map((s, i) => (
+                  <li key={s.email ?? i}>{s.display_name || s.email || '(no name)'} · {s.email}</li>
+                ))}
+                {extra > 0 && <li style={{ color: '#64748b' }}>…and {extra} more</li>}
+              </ul>
+              {!confirming ? (
+                <button
+                  onClick={() => setConfirming(true)}
+                  style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Review &amp; remove ({data.count})
+                </button>
+              ) : (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 12 }}>
+                  <p style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 10 }}>
+                    Permanently remove {data.count} student(s) and all their data (friends, attendance, notes)? This cannot be undone.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={remove}
+                      disabled={busy}
+                      style={{ background: busy ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}
+                    >
+                      {busy ? 'Removing…' : 'Yes, remove'}
+                    </button>
+                    <button
+                      onClick={() => setConfirming(false)}
+                      disabled={busy}
+                      style={{ background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 8, padding: '8px 14px', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {msg && <p style={{ fontSize: 13, color: msg.startsWith('Removed') ? '#15803d' : '#b91c1c', marginTop: 10 }}>{msg}</p>}
+        </>
+      )}
+    </Card>
   )
 }

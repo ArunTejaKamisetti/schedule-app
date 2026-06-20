@@ -26,6 +26,11 @@
 >
 > - **Retention:** the Phase-2 purge job (`/api/cron/retention`) trims old-term attendance/notes/
 >   notifications — already built.
+> - **Outgoing-student pruning (migration 018):** the roster is the source of truth — a student in
+>   neither the Y1 nor Y2 roster has left, and an admin-confirmed prune (`/api/admin/reconcile`)
+>   removes their account and all their data (cascade). So ex-students' identity/enrollments/friends/
+>   tokens don't linger. Guarded against an empty-roster wipe; admins exempt. (Supabase `auth.users`
+>   identities are intentionally left in place — a leaver with a disabled IIM email can't sign in.)
 > - **Token protection:** Google/calendar token tables are server-only; RLS denies client access — already in place (migration 014).
 > - **Domain-restricted identity:** only `@iimk.ac.in` Google accounts (Phase 1).
 >
