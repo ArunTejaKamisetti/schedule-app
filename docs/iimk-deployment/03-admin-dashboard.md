@@ -56,6 +56,10 @@ Roster-driven enrollment is built and is now *the* enrollment mechanism (student
 - **Admin API routes now require an admin session** via `lib/admin.ts#requireAdmin`: `/api/admin/roster`, `/api/admin/preview`, `/api/admin/oauth`, `/api/admin/oauth/callback`. The OAuth callback was **unauthenticated and rendered the refresh token into HTML** (anyone with a code could mint/read one) — now admin-only, and it no longer echoes `req.url` (which can carry the auth code) on error.
 - **`/api/sync`** accepts the `CRON_SECRET` bearer (cron) **or** an admin session (UI/browser trigger).
 
+### Admin dashboard — DONE
+- **`/admin` dashboard home** (`app/admin/page.tsx`) + shared nav (`app/admin/layout.tsx`, links Dashboard / Roster / Sheet preview). Shows row counts (courses sessions, students, enrollments, roster), the **latest sync per source** (status / time / +~− counts), and a **Sync now** button (POSTs `/api/sync` via the admin session). Backed by `GET /api/admin/status` (admin-gated) with a pure, unit-tested `latestSyncPerSource` helper.
+- Still to wire into the dashboard later: user/role management, and the bus/mess paste-import (next roadmap item).
+
 ### Known gaps (follow-ups)
 - **Refresh token still shown to the admin in HTML** on the OAuth callback (now admin-only, so no longer a public leak). Full fix per spec: store the institutional token **server-side** (DB) and have `lib/sheets.ts` read it from there instead of `process.env.GOOGLE_REFRESH_TOKEN`.
 - **exceljs advisory:** exceljs pulls a transitive old `uuid` (npm audit: 1 high). Low real-world risk here (admin-only, trusted institutional input, server-side, uuid not used security-sensitively). `npm audit fix` would *downgrade* exceljs — don't. If we want it gone, pin via a package.json `overrides` for `uuid`, or swap to a minimal reader.
