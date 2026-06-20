@@ -13,8 +13,38 @@ import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
 import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
-import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
-import { BUS, BUS_NOTE, BUS_STOPS } from '@/lib/bus'
+import { MESS, MESS_NOTE, type Meal, type DayMenu } from '@/lib/mess'
+import { BUS, BUS_NOTE, BUS_STOPS, type BusTrip } from '@/lib/bus'
+
+// Bus/mess come from the DB (admin paste-import) with the built-in constants as the fallback, so
+// the UI is byte-identical whether or not an admin has uploaded. One shared fetch, module-cached;
+// setState only in an async callback so there's no loading flash and no set-state-in-effect.
+interface BusMess { bus: BusTrip[]; busStops: string[]; busNote: string; mess: Record<string, DayMenu>; messNote: string }
+const BUS_MESS_DEFAULT: BusMess = { bus: BUS, busStops: BUS_STOPS, busNote: BUS_NOTE, mess: MESS, messNote: MESS_NOTE }
+let busMessCache: BusMess | null = null
+
+function useBusMess(): BusMess {
+  const [data, setData] = useState<BusMess>(busMessCache ?? BUS_MESS_DEFAULT)
+  useEffect(() => {
+    if (busMessCache) return
+    let active = true
+    fetch('/api/bus-mess')
+      .then((r) => r.json())
+      .then((d: { bus?: { note?: string; stops?: string[]; trips?: BusTrip[] }; mess?: { note?: string; menu?: Record<string, DayMenu> } }) => {
+        busMessCache = {
+          bus: d?.bus?.trips ?? BUS,
+          busStops: d?.bus?.stops ?? BUS_STOPS,
+          busNote: d?.bus?.note ?? BUS_NOTE,
+          mess: d?.mess?.menu ?? MESS,
+          messNote: d?.mess?.note ?? MESS_NOTE,
+        }
+        if (active) setData(busMessCache)
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
+  return data
+}
 
 const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 type HomeTab = 'courses' | 'mess' | 'bus'
@@ -467,7 +497,8 @@ function Onboarding({ onImport }: { onImport: () => void }) {
 
 // ─── Mess menu (day-wise) ─────────────────────────────────────────────────────
 function MessView({ weekday, dateLabel }: { weekday: string; dateLabel: string }) {
-  const menu = MESS[weekday]
+  const { mess, messNote } = useBusMess()
+  const menu = mess[weekday]
   if (!menu) return <p className="text-sm text-muted-foreground text-center py-10">No menu.</p>
   return (
     <div className="space-y-3">
@@ -475,7 +506,7 @@ function MessView({ weekday, dateLabel }: { weekday: string; dateLabel: string }
       <MealCard title="Breakfast" emoji="🍳" meal={menu.breakfast} />
       <MealCard title="Lunch" emoji="🍛" meal={menu.lunch} />
       <MealCard title="Dinner" emoji="🍽️" meal={menu.dinner} />
-      <p className="text-[11px] text-muted-foreground text-center pt-1">{MESS_NOTE}</p>
+      <p className="text-[11px] text-muted-foreground text-center pt-1">{messNote}</p>
     </div>
   )
 }
@@ -502,11 +533,12 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
 
 // ─── Bus schedule ─────────────────────────────────────────────────────────────
 function BusView() {
+  const { bus, busStops, busNote } = useBusMess()
   const [from, setFrom] = useState('All')
   const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
   const nowMin = ist.getUTCHours() * 60 + ist.getUTCMinutes()
 
-  const trips = from === 'All' ? BUS : BUS.filter((t) => t.from === from)
+  const trips = from === 'All' ? bus : bus.filter((t) => t.from === from)
   const nextIdx = trips.findIndex((t) => t.min >= nowMin)
 
   // Jump straight to the next bus when the tab opens (or the filter changes).
@@ -518,7 +550,7 @@ function BusView() {
   return (
     <div className="space-y-3">
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
-        {['All', ...BUS_STOPS].map((s) => (
+        {['All', ...busStops].map((s) => (
           <button key={s} onClick={() => setFrom(s)}
             className={cn('shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors',
               from === s ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-border text-muted-foreground bg-card')}>
@@ -553,7 +585,7 @@ function BusView() {
           )
         })}
       </div>
-      <p className="text-[11px] text-muted-foreground text-center pt-1">{BUS_NOTE}</p>
+      <p className="text-[11px] text-muted-foreground text-center pt-1">{busNote}</p>
     </div>
   )
 }

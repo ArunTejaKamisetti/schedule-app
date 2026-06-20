@@ -56,6 +56,12 @@ Roster-driven enrollment is built and is now *the* enrollment mechanism (student
 - **Admin API routes now require an admin session** via `lib/admin.ts#requireAdmin`: `/api/admin/roster`, `/api/admin/preview`, `/api/admin/oauth`, `/api/admin/oauth/callback`. The OAuth callback was **unauthenticated and rendered the refresh token into HTML** (anyone with a code could mint/read one) — now admin-only, and it no longer echoes `req.url` (which can carry the auth code) on error.
 - **`/api/sync`** accepts the `CRON_SECRET` bearer (cron) **or** an admin session (UI/browser trigger).
 
+### Bus & Mess — DONE (paste-import, shapes preserved)
+- **`site_content` table** (`migration 016`): one JSONB row per key (`bus` / `mess`), RLS admin-write / authenticated-read.
+- **Shapes kept exactly** (`BusTrip {time,min,from,to[],maingate}`, mess `DayMenu`/`Meal`) — `lib/bus.ts`/`lib/mess.ts` stay as the **built-in fallback**, so the Today UI is byte-identical with or without an upload.
+- **Admin UI** `app/admin/bus-mess/page.tsx`: a **Copy prompt** button (the prompt pins the exact JSON schema) + a paste box per source; `POST /api/admin/bus-mess` validates with the pure, unit-tested `parseBusPayload`/`parseMessPayload` (10 tests; auto-derives `min` from the time when omitted) and saves. Admin-gated.
+- **Read path** `GET /api/bus-mess` (edge-cached `s-maxage=600`); the Today page fetches it with the constants as the default (no loading flash) via a shared `useBusMess()` hook.
+
 ### Admin dashboard — DONE
 - **`/admin` dashboard home** (`app/admin/page.tsx`) + shared nav (`app/admin/layout.tsx`, links Dashboard / Roster / Sheet preview). Shows row counts (courses sessions, students, enrollments, roster), the **latest sync per source** (status / time / +~− counts), and a **Sync now** button (POSTs `/api/sync` via the admin session). Backed by `GET /api/admin/status` (admin-gated) with a pure, unit-tested `latestSyncPerSource` helper.
 - Still to wire into the dashboard later: user/role management, and the bus/mess paste-import (next roadmap item).
