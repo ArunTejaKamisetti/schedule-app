@@ -3,11 +3,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Copy, Check, Bell, BellOff, Calendar, ExternalLink,
-  Download, Sheet, Info, Sun, Moon, Monitor, Pencil, ChevronDown, Apple, CalendarCheck, Unplug,
+  Download, Sheet, Info, Sun, Moon, Monitor, ChevronDown, Apple, CalendarCheck, Unplug, Shield,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useSession } from '@/components/session-provider'
 import { toast } from 'sonner'
@@ -21,15 +20,13 @@ const PREF_LABELS: { key: PrefKey; label: string }[] = [
   { key: 'notify_daily_summary', label: 'Daily morning summary' },
 ]
 
-const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
-
 export default function SettingsPage() {
   const { userId, shareCode, user, signOut } = useSession()
+  const isAdmin = user?.role === 'admin'
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
-  const [displayName, setDisplayName] = useState('')
-  const [savingName, setSavingName] = useState(false)
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushSupported, setPushSupported] = useState(false)
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
@@ -74,7 +71,6 @@ export default function SettingsPage() {
   }, [userId])
 
   useEffect(() => {
-    if (user?.display_name) setDisplayName(user.display_name)
     if (user) {
       setPrefs({
         notify_cancelled: user.notify_cancelled ?? true,
@@ -92,24 +88,18 @@ export default function SettingsPage() {
   }, [user])
 
 
+  // The source schedule sheet depends on the user's year (1st-year vs 2nd-year sheet).
+  useEffect(() => {
+    if (!userId) return
+    fetch('/api/source-sheet').then((r) => r.json()).then((d) => setSheetUrl(d?.url ?? null)).catch(() => {})
+  }, [userId])
+
   const copy = useCallback((text: string, key: string, msg: string) => {
     navigator.clipboard.writeText(text)
     setCopied(key)
     toast.success(msg)
     setTimeout(() => setCopied(null), 2000)
   }, [])
-
-  async function saveName() {
-    if (!displayName.trim() || !userId) return
-    setSavingName(true)
-    await fetch('/api/user/name', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, name: displayName.trim() }),
-    })
-    setSavingName(false)
-    toast.success('Name saved!')
-  }
 
   async function togglePush() {
     if (!('serviceWorker' in navigator)) return
@@ -170,7 +160,7 @@ export default function SettingsPage() {
     setGcalConnected(false)
     toast.success('Google Calendar disconnected')
   }
-  function openSheet() { window.open(`https://docs.google.com/spreadsheets/d/${SHEET_ID}`, '_blank') }
+  function openSheet() { if (sheetUrl) window.open(sheetUrl, '_blank') }
 
   return (
     <div className="flex flex-col h-full">
@@ -202,20 +192,6 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
-        </Section>
-
-        {/* Display name */}
-        <Section title="Your Name">
-          <div className="flex gap-2">
-            <Input
-              placeholder="Enter your name (optional)"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="text-sm"
-            />
-            <Button onClick={saveName} disabled={!displayName.trim() || savingName} size="sm" variant="outline">Save</Button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">Shown to friends when you compare schedules</p>
         </Section>
 
         {/* Notifications */}
@@ -324,14 +300,19 @@ export default function SettingsPage() {
           )}
         </Section>
 
-        {/* Your courses */}
-        <Section title="Your courses">
-          <Button onClick={() => (window.location.href = '/courses')} variant="outline" className="w-full justify-start gap-3 h-12">
-            <Pencil size={16} className="text-indigo-500" />
-            <p className="text-sm font-medium">Edit / re-pick courses</p>
-            <ExternalLink size={14} className="ml-auto text-muted-foreground" />
-          </Button>
-        </Section>
+        {/* Admin mode — only for admins */}
+        {isAdmin && (
+          <Section title="Admin">
+            <Button onClick={() => (window.location.href = '/admin')} className="w-full justify-start gap-3 h-12">
+              <Shield size={16} />
+              <div className="text-left">
+                <p className="text-sm font-medium">Open admin console</p>
+                <p className="text-xs opacity-80">Rosters, schedule upload, sync, bus &amp; mess</p>
+              </div>
+              <ExternalLink size={14} className="ml-auto opacity-70" />
+            </Button>
+          </Section>
+        )}
 
         {/* Friends code — public */}
         <Section title="Friends Code">

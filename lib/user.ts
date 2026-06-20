@@ -1,5 +1,5 @@
 import { createServiceClient } from './supabase/server'
-import { isAdminEmail, parseAdminEmails, normalizeEmail } from './auth'
+import { isAdminEmail, parseAdminEmails, normalizeEmail, emailUsername } from './auth'
 import { applyRosterOnSignIn } from './roster'
 import type { User } from './types'
 
@@ -26,6 +26,9 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
   if (existing) {
     const patch: Record<string, unknown> = { last_seen_at: new Date().toISOString() }
     if (normEmail && !existing.email) patch.email = normEmail
+    // Backfill the default display name (email local-part) for accounts created before name
+    // defaulting — name editing is no longer offered, so a blank name would otherwise stick.
+    if (!existing.display_name && normEmail) patch.display_name = emailUsername(normEmail)
     await supabase.from('users').update(patch).eq('id', userId)
     return { ...existing, ...patch } as User
   }
@@ -48,6 +51,7 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .insert({
       id: userId,
       email: normEmail,
+      display_name: normEmail ? emailUsername(normEmail) : null,
       role: isAdminEmail(normEmail, parseAdminEmails(process.env.ADMIN_EMAILS)) ? 'admin' : 'student',
       share_code: shareCode,
       import_code: generateShareCode(),

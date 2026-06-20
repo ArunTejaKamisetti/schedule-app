@@ -44,6 +44,7 @@ const ROSTER_MANAGED = true
 
 export default function CoursesPage() {
   const { userId, user } = useSession()
+  const isAdmin = user?.role === 'admin'
   const [yearTab, setYearTab] = useState<1 | 2>(2)
   const [yearTabDecided, setYearTabDecided] = useState(false)
   const [allCourses, setAllCourses] = useState<Course[]>([])
@@ -60,15 +61,18 @@ export default function CoursesPage() {
   const [, startTransition] = useTransition()
 
   useEffect(() => {
-    // Catalog = one representative row per course (complete, no 1000-row cap).
-    fetch('/api/courses?catalog=1')
+    // Catalog = one representative row per course (complete, no 1000-row cap). Students always see
+    // the 2nd-year elective catalog; an admin (poweruser) browses the selected year's full catalog.
+    setLoading(true)
+    const url = isAdmin ? `/api/courses?catalog=1&year=${yearTab}` : '/api/courses?catalog=1'
+    fetch(url)
       .then((r) => r.json())
       .then((courses: Course[]) => {
         setAllCourses(Array.isArray(courses) ? courses : [])
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [])
+  }, [isAdmin, yearTab])
 
   // Default the active tab to the user's year once known (1st-years open straight into sections).
   useEffect(() => {
@@ -207,7 +211,7 @@ export default function CoursesPage() {
         {/* Year switch — 2nd-year electives vs 1st-year section timetable. */}
         <div className="flex gap-1 mb-3 bg-muted rounded-xl p-1">
           {([2, 1] as const).map((y) => {
-            const disabled = y === 1 && !YEAR1_ENABLED
+            const disabled = y === 1 && !YEAR1_ENABLED && !isAdmin
             return (
               <button
                 key={y}
@@ -226,7 +230,13 @@ export default function CoursesPage() {
           })}
         </div>
 
-        {yearTab === 2 ? (
+        {isAdmin ? (
+          <div className="flex items-center gap-2">
+            <BookOpen className="text-indigo-600 dark:text-indigo-400" size={22} />
+            <h1 className="text-xl font-bold text-foreground">All Courses · {yearTab === 1 ? '1st' : '2nd'} Year</h1>
+            <span className="ml-auto text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-full">Admin</span>
+          </div>
+        ) : yearTab === 2 ? (
           <>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -265,7 +275,11 @@ export default function CoursesPage() {
         )}
       </div>
 
-      {yearTab === 1 ? (
+      {isAdmin ? (
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <AdminCourseList byArea={byArea} loading={loading} />
+        </div>
+      ) : yearTab === 1 ? (
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <FirstYearPanel userId={userId} savedSection={user?.year === 1 ? user?.section ?? null : null} />
         </div>
@@ -348,6 +362,50 @@ export default function CoursesPage() {
       )}
       </>
       )}
+    </div>
+  )
+}
+
+// Admin (poweruser) view: every course of the selected year, read-only, grouped by area. Admins
+// are enrolled in everything (the user_sessions RPC returns all for them), so this is a browse/
+// reference list — no picking.
+function AdminCourseList({ byArea, loading }: { byArea: { area: string; groups: CourseGroup[] }[]; loading: boolean }) {
+  if (loading) {
+    return <div className="space-y-2.5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+  }
+  if (byArea.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+        <BookOpen size={40} strokeWidth={1} />
+        <p className="mt-3 text-sm">No courses for this year yet.</p>
+      </div>
+    )
+  }
+  const total = byArea.reduce((n, a) => n + a.groups.length, 0)
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">{total} course{total !== 1 ? 's' : ''} · you&apos;re enrolled in all of them (admin)</p>
+      {byArea.map(({ area, groups }) => (
+        <div key={area} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-foreground">{area}</span>
+            <span className="text-xs text-muted-foreground">({groups.length})</span>
+          </div>
+          {groups.map((g) => (
+            <div key={g.code} className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
+                {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
+              </div>
+              <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                {g.room && <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full"><MapPin size={10} />Class {g.room}</span>}
+                {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   )
 }

@@ -7,7 +7,20 @@ import {
   isPublicPath,
   isAdminPath,
   authRouteAction,
+  emailUsername,
 } from '@/lib/auth'
+
+describe('emailUsername (default display name)', () => {
+  it('returns the local-part before @', () => {
+    expect(emailUsername('Arun.Teja_2027@iimk.ac.in')).toBe('arun.teja_2027')
+  })
+  it('handles missing / blank / no-@ inputs', () => {
+    expect(emailUsername(null)).toBe('')
+    expect(emailUsername('')).toBe('')
+    expect(emailUsername('  ARUN@iimk.ac.in ')).toBe('arun')
+    expect(emailUsername('plainstring')).toBe('plainstring')
+  })
+})
 
 describe('emailDomainAllowed (college sign-in gate)', () => {
   it('accepts a college-domain email', () => {

@@ -17,10 +17,14 @@ export async function GET(req: NextRequest) {
   const from = params.get('from') // YYYY-MM-DD inclusive
   const to = params.get('to')     // YYYY-MM-DD inclusive
 
-  // Catalog: one representative row per course_code (2nd-year elective picker only — the RPC
-  // filters year = 2). Avoids the 1000-row cap missing late-term courses.
+  // Catalog: one representative row per course_code. Default is the 2nd-year picker (RPC filters
+  // year = 2); an explicit `year` uses the year-parameterised overload (admin browses either year).
+  // Avoids the 1000-row cap missing late-term courses.
   if (params.get('catalog')) {
-    const { data, error } = await supabase.rpc('course_catalog')
+    const yr = params.get('year')
+    const { data, error } = yr
+      ? await supabase.rpc('course_catalog', { p_year: Number(yr) })
+      : await supabase.rpc('course_catalog')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return cached(data)
   }

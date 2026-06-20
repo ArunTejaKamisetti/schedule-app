@@ -7,6 +7,15 @@ export function normalizeEmail(email?: string | null): string {
   return (email ?? '').trim().toLowerCase()
 }
 
+// The default display name: the local-part of the email (before "@"). Used when a user has set
+// no name of their own — name editing is no longer offered, so this is the shown name.
+// e.g. "arun.teja_2027@iimk.ac.in" → "arun.teja_2027".
+export function emailUsername(email?: string | null): string {
+  const e = normalizeEmail(email)
+  const at = e.indexOf('@')
+  return at > 0 ? e.slice(0, at) : e
+}
+
 // True only if the email belongs exactly to the allowed college domain
 // (e.g. "iimk.ac.in"). Case-insensitive; a leading "@" on the domain is tolerated.
 export function emailDomainAllowed(
