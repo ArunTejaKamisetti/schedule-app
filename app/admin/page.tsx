@@ -124,6 +124,14 @@ export default function AdminDashboard() {
             </p>
             <a href="/admin/roster" style={{ color: '#4f46e5', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Upload rosters →</a>
           </Card>
+
+          <Card>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Term schedule</h2>
+            <p style={{ color: '#64748b', fontSize: 14, marginBottom: 10 }}>
+              Upload a term-schedule workbook (.xlsx) for a source — parsed and synced like the Google sheet (colours + merges honoured).
+            </p>
+            <a href="/admin/schedule" style={{ color: '#4f46e5', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>Upload term schedule →</a>
+          </Card>
         </>
       )}
     </main>

@@ -10,6 +10,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <nav style={{ display: 'flex', gap: 16, fontSize: 14 }}>
           <a href="/admin" style={{ color: '#4f46e5', textDecoration: 'none' }}>Dashboard</a>
           <a href="/admin/roster" style={{ color: '#4f46e5', textDecoration: 'none' }}>Roster</a>
+          <a href="/admin/schedule" style={{ color: '#4f46e5', textDecoration: 'none' }}>Schedule upload</a>
           <a href="/admin/bus-mess" style={{ color: '#4f46e5', textDecoration: 'none' }}>Bus &amp; Mess</a>
           <a href="/admin/preview" style={{ color: '#4f46e5', textDecoration: 'none' }}>Sheet preview</a>
         </nav>
