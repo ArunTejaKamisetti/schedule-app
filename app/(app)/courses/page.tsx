@@ -37,6 +37,11 @@ const YEAR1_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'LSM', 'FIN'] as
 // unclickable (Work-in-Progress) until the remaining logic lands. Flip to true to re-enable.
 const YEAR1_ENABLED = false
 
+// Enrollment is roster-driven: the admin uploads each student's section / electives, so students
+// no longer self-pick. The picker and the section chooser become read-only. Flip to false to
+// restore self-service picking.
+const ROSTER_MANAGED = true
+
 export default function CoursesPage() {
   const { userId, user } = useSession()
   const [yearTab, setYearTab] = useState<1 | 2>(2)
@@ -88,7 +93,7 @@ export default function CoursesPage() {
   // — adding the first course must NOT bounce them out to the static list.
   useEffect(() => {
     if (decided || loading || !userLoaded) return
-    setPicking(selectedCodes.size === 0)
+    setPicking(!ROSTER_MANAGED && selectedCodes.size === 0)
     setDecided(true)
   }, [decided, loading, userLoaded, selectedCodes])
 
@@ -234,7 +239,7 @@ export default function CoursesPage() {
                 ) : (
                   <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">{selectedGroups.length} selected</span>
                 )
-              ) : (
+              ) : ROSTER_MANAGED ? null : (
                 <button onClick={() => setEditing(true)} title="Add or remove your courses" className="flex items-center gap-1.5 text-sm font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 rounded-lg">
                   <Pencil size={14} /> Edit
                 </button>
@@ -383,6 +388,7 @@ function FirstYearPanel({ userId, savedSection }: { userId: string; savedSection
   }, [selected, available])
 
   async function chooseSection(section: string) {
+    if (ROSTER_MANAGED) return // section comes from the admin roster — read-only
     const hasData = available?.includes(section)
     setSelected(section)
     if (!hasData) return // unavailable → just show the prompt; don't save an enrollment
@@ -408,7 +414,9 @@ function FirstYearPanel({ userId, savedSection }: { userId: string; savedSection
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Pick your section to load its full timetable. You can switch any time.
+        {ROSTER_MANAGED
+          ? 'Your section is set from the official roster. Its full timetable is below.'
+          : 'Pick your section to load its full timetable. You can switch any time.'}
       </p>
 
       <div className="grid grid-cols-4 gap-2">
@@ -552,7 +560,7 @@ function StaticList({ groups, summary }: { groups: CourseGroup[]; summary: Cours
 
   return (
     <div className="space-y-2.5">
-      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance in Home/Schedule · tap <b className="text-foreground">Edit</b> to change</p>
+      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance in Home/Schedule{ROSTER_MANAGED ? ' · set from the official roster' : <> · tap <b className="text-foreground">Edit</b> to change</>}</p>
       {ordered.map((s) => {
         const pct = s.held > 0 ? Math.round((s.present / s.held) * 100) : null
         const mismatch = s.expected > 0 && s.total > 0 && s.expected !== s.total

@@ -3,20 +3,27 @@ import type { Course } from './types'
 
 type ServiceClient = ReturnType<typeof createServiceClient>
 
-// The distinct course CODES a user picked, derived from their per-session enrolment rows.
-// Resolving by code — not by the frozen session id stored at pick time — is what lets
-// sessions ADDED to the sheet afterwards still belong to the user.
-export async function getUserPickedCodes(supabase: ServiceClient, userId: string): Promise<string[]> {
-  const { data } = await supabase
-    .from('user_courses')
-    .select('courses(course_code)')
-    .eq('user_id', userId)
+// Collapse enrollment rows to the distinct course codes they reference. Pure (no DB) so it can be
+// unit-tested; tolerant of the legacy per-session shape ({ courses: { course_code } }) and the
+// normalized one ({ course_code }) during the migration window.
+export function distinctCodes(rows: { course_code?: string | null; courses?: { course_code?: string | null } | null }[] | null | undefined): string[] {
   const codes = new Set<string>()
-  for (const r of data ?? []) {
-    const code = (r as { courses?: { course_code?: string } }).courses?.course_code
+  for (const r of rows ?? []) {
+    const code = r?.course_code ?? r?.courses?.course_code
     if (code) codes.add(code)
   }
   return [...codes]
+}
+
+// The distinct course CODES a user picked. Reads the normalized `enrollments` table (one row per
+// course, by code). Resolving by code — not by a frozen session id — is what lets sessions ADDED
+// to the sheet afterwards still belong to the user.
+export async function getUserPickedCodes(supabase: ServiceClient, userId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('enrollments')
+    .select('course_code')
+    .eq('user_id', userId)
+  return distinctCodes(data as { course_code?: string | null }[] | null)
 }
 
 // Remembered per warm function instance: is the user_sessions RPC (migration 010) present?

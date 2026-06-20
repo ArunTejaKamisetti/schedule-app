@@ -43,3 +43,24 @@ Keep it a simple edge table re-keyed to `profiles`. The app has **no friend-requ
 ## Critical files
 
 `supabase/migrations/012+_*.sql` (normalize + backfill + RLS + RPC rewrites), `lib/enrollment.ts`, `lib/types.ts`, `lib/sheets.ts`, `app/api/sync/route.ts`, read APIs under `app/api/**`.
+
+---
+
+## Status / progress
+
+### Done (code on `localdev`, migrations awaiting apply)
+- **Enrollment normalized (the headline ~10× row win).** New `enrollments` table — one row per `(user, course_code)` instead of one per session. `pick_course` / `unpick_course` / `user_sessions` RPCs rewritten to it (return contracts **unchanged**, so UI/read code is untouched); `lib/enrollment.ts` and `lib/notify.ts` (2nd-year recipient resolution) read it. `user_courses` kept dormant for rollback. → `supabase/migrations/013_enrollments.sql`
+- **RLS on every existing table + `is_admin()`** (defense-in-depth; service-role routes bypass it, so it's harmless now and becomes *enforced* the moment a route switches to the cookie-aware client). → `supabase/migrations/014_rls.sql`
+- **Retention purge** (DPDP minimization): `lib/retention.ts` (pure, unit-tested) + `app/api/cron/retention/route.ts` deletes old-term `notes`/`attendance`/`notifications` beyond `RETENTION_DAYS` (default 180).
+- Unit tests: `tests/enrollment.test.ts`, `tests/retention.test.ts`. `npm test` green (126), `npm run build` green.
+
+### Remaining — `courses` → master + `course_sessions` split (deferred; needs a live DB to verify)
+This is the high-risk half: `courses.id` is currently a **session** id that `attendance` / `notes` / `calendar_event_map` / `notifications.course_id` all FK to, and the entire sync pipeline writes per-session rows. The split can't be unit-verified blind — it needs a real Sheets sync + a signed-in app to confirm `/today` and `/schedule` render identically — so it's staged for a session where migrations can be applied and checked. Sub-plan:
+1. Migration: create `faculty`, `courses` master (unique `(code, year)`), `course_sessions` (FK `course_id`, unique `(course_id, sheet_tab, session_date, start_time)`, keep today's indexes). Add `enrollments.course_id → courses` and backfill from `course_code`. Re-key `attendance`/`notes`/`calendar_event_map`/`notifications` to `course_sessions(id)`. Per **decision 4 (fresh start)** the per-user re-key is truncate-and-repopulate, not a careful backfill.
+2. `user_sessions` RPC: change to `RETURNS TABLE(<old Course columns>)` joining `enrollments → courses → course_sessions`, **same flat shape** — keeps the seam so UI is unchanged.
+3. Rewrite the sync upsert (`app/api/sync/route.ts` + `lib/sheets.ts`): upsert `faculty`/`courses` **once**, `course_sessions` per session; point diff/change-highlight at `course_sessions`.
+4. Update the direct `courses` reads that mean "sessions": `lib/gcal.ts`, `app/api/courses/route.ts`, `app/api/calendar/route.ts`, `app/api/friends/free-time/route.ts`, `app/api/cron/daily-summary/route.ts`, `lib/notify.ts` (code→session-id map). Keep response JSON stable.
+5. Edge `Cache-Control: s-maxage` on shared schedule read routes (egress is the real cost lever at 2,400 users).
+
+### Apply order (Supabase dashboard → SQL Editor → Run)
+`013_enrollments.sql` → `014_rls.sql`. Both idempotent. After 014, smoke-test sign-in + a schedule load; any 403 = a route still on the service client (expected until Phase 1 route-auth finishes). Then the dormant `user_courses` table can be dropped once `enrollments` is confirmed populated.

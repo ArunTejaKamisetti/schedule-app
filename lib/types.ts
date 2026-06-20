@@ -42,6 +42,15 @@ export interface User {
   last_seen_at: string
 }
 
+// Normalized enrollment: one row per (user, course code). Replaces UserCourse.
+export interface Enrollment {
+  user_id: string
+  course_code: string
+  year: number
+  added_at: string
+}
+
+/** @deprecated per-session enrollment — superseded by {@link Enrollment} (migration 013). */
 export interface UserCourse {
   user_id: string
   course_id: string

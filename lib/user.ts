@@ -1,5 +1,6 @@
 import { createServiceClient } from './supabase/server'
-import { isAdminEmail, parseAdminEmails } from './auth'
+import { isAdminEmail, parseAdminEmails, normalizeEmail } from './auth'
+import { applyRosterOnSignIn } from './roster'
 import type { User } from './types'
 
 function generateShareCode(): string {
@@ -20,9 +21,11 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .eq('id', userId)
     .single()
 
+  const normEmail = normalizeEmail(email) || null
+
   if (existing) {
     const patch: Record<string, unknown> = { last_seen_at: new Date().toISOString() }
-    if (email && !existing.email) patch.email = email
+    if (normEmail && !existing.email) patch.email = normEmail
     await supabase.from('users').update(patch).eq('id', userId)
     return { ...existing, ...patch } as User
   }
@@ -44,8 +47,8 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .from('users')
     .insert({
       id: userId,
-      email: email ?? null,
-      role: isAdminEmail(email, parseAdminEmails(process.env.ADMIN_EMAILS)) ? 'admin' : 'student',
+      email: normEmail,
+      role: isAdminEmail(normEmail, parseAdminEmails(process.env.ADMIN_EMAILS)) ? 'admin' : 'student',
       share_code: shareCode,
       import_code: generateShareCode(),
     })
@@ -53,7 +56,13 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .single()
 
   if (error) throw new Error(`Failed to create user: ${error.message}`)
-  return newUser as User
+
+  // Roster-driven enrollment: if the admin already uploaded this student's section/electives,
+  // apply it now so their schedule is personalised on first sign-in (no self-picking). Best-effort
+  // and idempotent; a missing roster row is a no-op. Re-select so the returned year/section is fresh.
+  await applyRosterOnSignIn(supabase, userId, normEmail).catch(() => {})
+  const { data: applied } = await supabase.from('users').select('*').eq('id', userId).single()
+  return (applied ?? newUser) as User
 }
 
 export async function getUserByShareCode(shareCode: string): Promise<User | null> {

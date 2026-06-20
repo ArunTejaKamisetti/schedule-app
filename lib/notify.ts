@@ -61,16 +61,17 @@ export async function notifyAffectedUsers(changes: CourseChange[], year: 1 | 2 =
     }
   } else {
     if (courses.length === 0) return
-    const codeById = new Map(courses.map((c) => [c.id, c.course_code] as [string, string]))
-    const { data: enrollments } = await supabase
-      .from('user_courses')
-      .select('user_id, course_id, users(id, push_subscription, notify_cancelled, notify_rescheduled, notify_room)')
-      .in('course_id', courses.map((c) => c.id))
-    for (const enrollment of enrollments ?? []) {
-      const user = (enrollment as any).users as Recipient | null
+    // 2nd-year: recipients are users enrolled (by code) in an affected course. Reads the
+    // normalized `enrollments` table (one row per pick) rather than the per-session `user_courses`.
+    const { data: enrolled } = await supabase
+      .from('enrollments')
+      .select('user_id, course_code, users(id, push_subscription, notify_cancelled, notify_rescheduled, notify_room)')
+      .in('course_code', affectedCodes)
+    for (const enrollment of enrolled ?? []) {
+      const row = enrollment as { course_code: string; users: Recipient | null }
+      const user = row.users
       if (!user) continue
-      const code = codeById.get((enrollment as { course_id: string }).course_id)
-      if (!code) continue
+      const code = row.course_code
       const relevant = changes.filter((ch) => ch.course_code === code && wantsChange(user, ch.type))
       if (relevant.length === 0) continue
       if (!perUser.has(user.id)) perUser.set(user.id, { sub: user.push_subscription, notifs: [] })

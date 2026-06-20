@@ -37,3 +37,23 @@ Admin can view users, set/revoke admin role (writes `profiles.role` / the `admin
 ## Critical files
 
 New `app/(admin)/admin/**`; port of `app/admin/preview`; new `app/api/admin/**` (roster upload, **bus/mess paste → parse → save**, sync trigger, user/role mgmt); a `zod` parser/validator for the pasted JSON; remove unauthenticated `app/api/admin/oauth` exposure + the token-in-HTML callback; `lib/bus.ts`, `lib/mess.ts` → DB-backed; new `bus` / `mess` / `roster` tables.
+
+---
+
+## Status / progress — roster upload DONE
+
+Roster-driven enrollment is built and is now *the* enrollment mechanism (students no longer self-pick). Confirmed shape with Arun: **two separate `.xlsx` uploads** (not one CSV).
+
+- **`roster` table + `apply_roster_to_user(uid, email)` RPC** → `supabase/migrations/015_roster.sql`. One row per email; `apply` sets year/section (year-1) or replaces `enrollments` with the elective codes (year-2). RLS: admin/service only.
+- **Parser** `lib/roster-parse.ts` (pure, 10 tests): tolerant — locates the email column by content, works with/without a header row, and for year-2 accepts either one comma-separated electives column or several code columns. Year-2 codes **must match the schedule sheet codes** (e.g. `GT-A`, `FC (FIN)`).
+- **Upload route** `POST /api/admin/roster` (multipart `type=year1|year2`, `file`): reads the `.xlsx` with **exceljs**, stores the roster, and applies it to already-signed-in students. **Admin-gated** via new `lib/admin.ts#requireAdmin` (reads the signed-in user from the cookie client — can't be spoofed by a body param).
+- **Apply on sign-in** `lib/user.ts#getOrCreateUser` → `lib/roster.ts#applyRosterOnSignIn`, so upload-before-signin and signin-before-upload both auto-fill. Emails are normalized (lowercased) on user creation so matching is reliable.
+- **Admin UI** `app/admin/roster/page.tsx` — two file inputs with a result summary.
+- **Picker hidden** behind `ROSTER_MANAGED` in `app/(app)/courses/page.tsx`: no Edit button, no first-time picker, the 1st-year section chooser is read-only.
+
+### Known gaps (follow-ups)
+- **`/admin/**` page gating:** the proxy only requires *auth*, not the *admin role* — the page is reachable by any signed-in user (the API route is the real boundary, returns 403). Add admin-role gating in the proxy (Phase 5). Same applies to the still-unauthenticated `/api/admin/preview`, `/api/admin/oauth`, and the `CRON_SECRET`-only `/api/sync` — port them onto `requireAdmin`.
+- **exceljs advisory:** exceljs pulls a transitive old `uuid` (npm audit: 1 high). Low real-world risk here (admin-only, trusted institutional input, server-side, uuid not used security-sensitively). `npm audit fix` would *downgrade* exceljs — don't. If we want it gone, pin via a package.json `overrides` for `uuid`, or swap to a minimal reader.
+
+### Apply order (Supabase SQL Editor)
+After `013`/`014`: run `015_roster.sql`. Then upload the two rosters at `/admin/roster` while signed in as an `ADMIN_EMAILS` account.
