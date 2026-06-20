@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/proxy'
-import { authRouteAction } from '@/lib/auth'
+import { authRouteAction, isAdminEmail, parseAdminEmails } from '@/lib/auth'
 
 // Next.js 16 renamed Middleware to Proxy. This gates the app behind a signed-in
 // Supabase session and keeps the auth cookies fresh on every request. The
 // allow/redirect decision is the pure `authRouteAction` (unit-tested).
 export async function proxy(request: NextRequest) {
   const { response, user } = await updateSession(request)
-  const action = authRouteAction(request.nextUrl.pathname, !!user)
+  const isAdmin = isAdminEmail(user?.email, parseAdminEmails(process.env.ADMIN_EMAILS))
+  const action = authRouteAction(request.nextUrl.pathname, !!user, isAdmin)
 
   if (action === 'to-sign-in') {
     const url = request.nextUrl.clone()

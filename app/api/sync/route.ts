@@ -5,13 +5,16 @@ import { diffSheetData } from '@/lib/diff'
 import { notifyAffectedUsers } from '@/lib/notify'
 import { syncGoogleCalendarForUsers } from '@/lib/gcal'
 import { createServiceClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/admin'
 
 export const maxDuration = 60
 
 type SB = ReturnType<typeof createServiceClient>
 
 export async function POST(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Cron uses the CRON_SECRET bearer; a signed-in admin can also trigger it from the UI/browser.
+  const cronOk = req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
+  if (!cronOk && !(await requireAdmin())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const supabase = createServiceClient()

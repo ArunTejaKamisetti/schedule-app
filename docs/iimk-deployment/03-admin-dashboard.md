@@ -51,8 +51,13 @@ Roster-driven enrollment is built and is now *the* enrollment mechanism (student
 - **Admin UI** `app/admin/roster/page.tsx` — two file inputs with a result summary.
 - **Picker hidden** behind `ROSTER_MANAGED` in `app/(app)/courses/page.tsx`: no Edit button, no first-time picker, the 1st-year section chooser is read-only.
 
+### Admin access hardening — DONE
+- **`/admin/**` pages role-gated in the proxy:** a signed-in non-admin is bounced to `/today` (pure `authRouteAction(path, isAuthed, isAdmin)` + `isAdminPath`, unit-tested; proxy computes `isAdmin` from `ADMIN_EMAILS`).
+- **Admin API routes now require an admin session** via `lib/admin.ts#requireAdmin`: `/api/admin/roster`, `/api/admin/preview`, `/api/admin/oauth`, `/api/admin/oauth/callback`. The OAuth callback was **unauthenticated and rendered the refresh token into HTML** (anyone with a code could mint/read one) — now admin-only, and it no longer echoes `req.url` (which can carry the auth code) on error.
+- **`/api/sync`** accepts the `CRON_SECRET` bearer (cron) **or** an admin session (UI/browser trigger).
+
 ### Known gaps (follow-ups)
-- **`/admin/**` page gating:** the proxy only requires *auth*, not the *admin role* — the page is reachable by any signed-in user (the API route is the real boundary, returns 403). Add admin-role gating in the proxy (Phase 5). Same applies to the still-unauthenticated `/api/admin/preview`, `/api/admin/oauth`, and the `CRON_SECRET`-only `/api/sync` — port them onto `requireAdmin`.
+- **Refresh token still shown to the admin in HTML** on the OAuth callback (now admin-only, so no longer a public leak). Full fix per spec: store the institutional token **server-side** (DB) and have `lib/sheets.ts` read it from there instead of `process.env.GOOGLE_REFRESH_TOKEN`.
 - **exceljs advisory:** exceljs pulls a transitive old `uuid` (npm audit: 1 high). Low real-world risk here (admin-only, trusted institutional input, server-side, uuid not used security-sensitively). `npm audit fix` would *downgrade* exceljs — don't. If we want it gone, pin via a package.json `overrides` for `uuid`, or swap to a minimal reader.
 
 ### Apply order (Supabase SQL Editor)

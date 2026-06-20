@@ -5,6 +5,7 @@ import {
   parseAdminEmails,
   isAdminEmail,
   isPublicPath,
+  isAdminPath,
   authRouteAction,
 } from '@/lib/auth'
 
@@ -85,6 +86,34 @@ describe('route protection (proxy decision)', () => {
     expect(authRouteAction('/sign-in', true)).toBe('to-home')
     expect(authRouteAction('/today', true)).toBe('allow')
     expect(authRouteAction('/api/courses', true)).toBe('allow')
+  })
+})
+
+describe('admin page gating', () => {
+  it('identifies admin paths (pages only, not the api)', () => {
+    expect(isAdminPath('/admin')).toBe(true)
+    expect(isAdminPath('/admin/roster')).toBe(true)
+    expect(isAdminPath('/admin/preview')).toBe(true)
+    expect(isAdminPath('/today')).toBe(false)
+    expect(isAdminPath('/api/admin/roster')).toBe(false) // api routes gate themselves
+  })
+
+  it('bounces a signed-in non-admin away from /admin pages', () => {
+    expect(authRouteAction('/admin/roster', true, false)).toBe('to-home')
+    expect(authRouteAction('/admin', true, false)).toBe('to-home')
+  })
+
+  it('lets an admin into /admin pages', () => {
+    expect(authRouteAction('/admin/roster', true, true)).toBe('allow')
+    expect(authRouteAction('/admin', true, true)).toBe('allow')
+  })
+
+  it('sends an unauthenticated user to sign-in (not a non-admin bounce)', () => {
+    expect(authRouteAction('/admin/roster', false, false)).toBe('to-sign-in')
+  })
+
+  it('does not gate the admin API at the proxy (routes enforce requireAdmin)', () => {
+    expect(authRouteAction('/api/admin/roster', true, false)).toBe('allow')
   })
 })
 

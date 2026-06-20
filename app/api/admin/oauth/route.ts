@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { requireAdmin } from '@/lib/admin'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -13,8 +14,11 @@ function getOAuth2Client() {
   )
 }
 
-// Step 1: Redirect to Google consent
+// Step 1: Redirect to Google consent (admin only — this provisions the institutional sheet token).
 export async function GET() {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 })
+  }
   const oauth2Client = getOAuth2Client()
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',

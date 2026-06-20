@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { requireAdmin } from '@/lib/admin'
 
 export async function GET(req: NextRequest) {
+  // Admin only — this callback exchanges an auth code for the institutional sheet token.
+  // Without this gate ANYONE hitting the URL with a code could mint and read a refresh token.
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 })
+  }
+
   const code = req.nextUrl.searchParams.get('code')
   const errorParam = req.nextUrl.searchParams.get('error')
   const errorDesc = req.nextUrl.searchParams.get('error_description')
   if (!code) {
+    // Don't echo req.url back — it can carry the auth `code`/secrets in the query string.
     const html = `<!DOCTYPE html><html><body style="font-family:monospace;background:#0f0f0f;color:#f00;padding:40px">
       <h2>❌ OAuth Error</h2>
       <p><b>Google error:</b> ${errorParam ?? 'none'}</p>
       <p><b>Description:</b> ${errorDesc ?? 'none'}</p>
-      <p><b>Full callback URL:</b><br><code style="word-break:break-all;color:#ff0">${req.url}</code></p>
     </body></html>`
     return new NextResponse(html, { status: 400, headers: { 'Content-Type': 'text/html' } })
   }

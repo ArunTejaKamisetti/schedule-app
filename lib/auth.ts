@@ -39,14 +39,21 @@ export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'))
 }
 
+// Admin-only page area. `/api/admin/**` is NOT included here — API routes enforce their own
+// auth (requireAdmin) and must return JSON, not a redirect.
+export function isAdminPath(pathname: string): boolean {
+  return pathname === '/admin' || pathname.startsWith('/admin/')
+}
+
 export type RouteAction = 'allow' | 'to-sign-in' | 'to-home'
 
-// What the proxy should do for a given path + auth state.
-// API routes enforce their own auth (and must return JSON, not a redirect),
-// so they're always allowed through here.
-export function authRouteAction(pathname: string, isAuthed: boolean): RouteAction {
+// What the proxy should do for a given path + auth state. API routes enforce their own auth
+// (and must return JSON, not a redirect), so they're always allowed through here. Admin PAGES
+// additionally require the admin role — a signed-in non-admin is bounced home.
+export function authRouteAction(pathname: string, isAuthed: boolean, isAdmin = false): RouteAction {
   if (pathname.startsWith('/api')) return 'allow'
   if (!isAuthed && !isPublicPath(pathname)) return 'to-sign-in'
   if (isAuthed && pathname === '/sign-in') return 'to-home'
+  if (isAdminPath(pathname) && isAuthed && !isAdmin) return 'to-home'
   return 'allow'
 }

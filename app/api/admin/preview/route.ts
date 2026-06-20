@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { fetchBothSheetTabs, parseSheetRows } from '@/lib/sheets'
+import { requireAdmin } from '@/lib/admin'
 
 export async function GET() {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 })
+  }
   try {
     const data = await fetchBothSheetTabs()
     const parsed1 = parseSheetRows(data.sheet1)
