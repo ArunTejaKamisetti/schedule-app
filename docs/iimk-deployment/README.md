@@ -44,7 +44,9 @@ Order: 0 → 1 (auth is the foundation for RLS) → 2 → 3 → 4, with Phase 5 
 
 **Route-auth lockdown (Phase 5 §3) done.** New `lib/api-auth.ts#getAuthedSession()` (cookie-aware RLS client + verified `auth.uid()`); every own-data API route now derives identity from the session (client `userId` ignored) and runs on the RLS client so migration-014 RLS enforces. Cross-user friend routes keep the service client but take the caller from the session and add a friendship authz check. Impersonation vectors removed: `/api/user/resolve`→410, legacy `lib/session.ts` deleted, client import/recovery UI removed. The one documented exception is the `/api/calendar` .ics feed (external cookieless subscription; random-UUID bearer capability). Validation stays hand-rolled (no zod), per project convention.
 
-**Remaining (manual/ops at handover):** Phase 4 secret **rotation** runbook; apply migrations 013–016 to the live DB; optional `calendar_token` hardening; rate limiting (Phase 5 §4) and security headers (§6) if desired.
+**Security headers (Phase 5 §6) done** — `next.config.ts#headers()` sets CSP (connect-src locked to this deploy's Supabase origin; dev loosened for Turbopack HMR), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy. Verified emitted locally.
+
+**Remaining (manual/ops at handover):** Phase 4 secret **rotation** runbook; apply migrations 013–016 to the live DB; optional `calendar_token` hardening; optional Phase 5 §4 rate limiting, §8 admin audit-log table, §10 Dependabot, §12 monitoring.
 
 **Biggest DB win (from real data):** `user_courses` is 52,839 rows because enrollment is stored per *session*; pointing enrollment at the course master collapses it ~10× to ~5–6k. See [02-database.md](02-database.md).
 
