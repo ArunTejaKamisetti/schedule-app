@@ -1,14 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getUserByImportCode } from '@/lib/user'
+import { NextResponse } from 'next/server'
 
-// GET /api/user/resolve?code=XXXX — map a PRIVATE import code to its user id,
-// so another device can import the whole profile. (Friends use share_code, not this.)
-export async function GET(req: NextRequest) {
-  const code = req.nextUrl.searchParams.get('code')?.trim().toUpperCase()
-  if (!code) return NextResponse.json({ error: 'Missing code' }, { status: 400 })
-
-  const user = await getUserByImportCode(code)
-  if (!user) return NextResponse.json({ error: 'No profile found for that code' }, { status: 404 })
-
-  return NextResponse.json({ userId: user.id, shareCode: user.share_code })
+// REMOVED (impersonation vector). This endpoint used to map a private import code → user id so a
+// new device could "restore" a profile. Under mandatory Google sign-in, identity is the
+// authenticated session (auth.uid()) — importing someone else's profile by code is account
+// takeover. Kept as a 410 so any stale client gets a clear, safe response instead of a 404.
+export function GET() {
+  return NextResponse.json(
+    { error: 'Profile import has been removed. Sign in with your college Google account.' },
+    { status: 410 }
+  )
 }

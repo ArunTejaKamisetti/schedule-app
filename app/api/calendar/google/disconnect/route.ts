@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { disconnectGoogleCalendar } from '@/lib/gcal'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 
-// POST /api/calendar/google/disconnect — remove pushed events + stored tokens.
-export async function POST(req: NextRequest) {
-  const { userId } = await req.json()
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+// POST /api/calendar/google/disconnect — remove the signed-in user's pushed events + tokens.
+export async function POST() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
 
-  await disconnectGoogleCalendar(userId)
+  await disconnectGoogleCalendar(session.userId)
   return NextResponse.json({ ok: true })
 }

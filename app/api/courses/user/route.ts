@@ -1,40 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 import { getUserSessions } from '@/lib/enrollment'
 import { syncGoogleCalendarForUser } from '@/lib/gcal'
 
-// GET /api/courses/user?userId=xxx  → every current session of the user's picked courses.
+// GET /api/courses/user  → every current session of the signed-in user's picked courses.
 // Resolved by course CODE (not frozen session ids), so classes added/moved/updated in the
 // sheet after the user picked show up here immediately. Shape kept as { course_id, courses }
 // for existing consumers (Home, Schedule, Courses).
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
-
-  const supabase = createServiceClient()
+export async function GET() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
   const sessions = await getUserSessions(supabase, userId)
   return NextResponse.json(sessions.map((c) => ({ course_id: c.id, added_at: null, courses: c })))
 }
 
-// POST /api/courses/user  → add or remove a whole course (all its dated sessions)
-// Body: { userId, courseCode, action: 'add' | 'remove' }
+// POST /api/courses/user  → add or remove a whole course (all its dated sessions) for the
+// signed-in user. Body: { courseCode, action: 'add' | 'remove' }
 export async function POST(req: NextRequest) {
-  const { userId, courseCode, action } = await req.json()
-  if (!userId || !courseCode || !action) {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
+
+  const { courseCode, action } = await req.json()
+  if (!courseCode || !action) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   }
 
-  const supabase = createServiceClient()
-
   if (action === 'add') {
-    // Ensure user exists
-    const { data: user } = await supabase.from('users').select('id').eq('id', userId).single()
-    if (!user) {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-      let code = ''
-      for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)]
-      await supabase.from('users').insert({ id: userId, share_code: code })
-    }
     const { error } = await supabase.rpc('pick_course', { p_user: userId, p_code: courseCode })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     // Picking an elective marks this account as 2nd-year (flips a former 1st-year section back).

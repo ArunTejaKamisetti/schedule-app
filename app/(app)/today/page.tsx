@@ -2,13 +2,10 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, addDays, parseISO } from 'date-fns'
-import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud, Bell, Info } from 'lucide-react'
+import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, Bell, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
-import { setSessionId, setSessionCode } from '@/lib/session'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
 import { toast } from 'sonner'
@@ -103,9 +100,6 @@ export default function TodayPage() {
   const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
   const [selectedDate, setSelectedDate] = useState(initialDate)
   const [tab, setTab] = useState<HomeTab>('courses')
-  const [importOpen, setImportOpen] = useState(false)
-  const [importCode, setImportCode] = useState('')
-  const [importing, setImporting] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
 
   // Push notifications deep-link here with ?alerts=1 → open the panel.
@@ -116,25 +110,6 @@ export default function TodayPage() {
       window.history.replaceState({}, '', '/today')
     }
   }, [])
-
-  async function importProfile() {
-    const code = importCode.trim().toUpperCase()
-    if (!code) return
-    setImporting(true)
-    try {
-      const res = await fetch(`/api/user/resolve?code=${encodeURIComponent(code)}`)
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error ?? 'Invalid code'); return }
-      setSessionId(data.userId)
-      setSessionCode(data.shareCode)
-      toast.success('Profile imported — reloading…')
-      setTimeout(() => window.location.reload(), 600)
-    } catch {
-      toast.error('Could not import. Try again.')
-    } finally {
-      setImporting(false)
-    }
-  }
 
   function scrollToDate(iso: string, smooth: boolean) {
     railRef.current?.querySelector(`[data-iso="${iso}"]`)?.scrollIntoView({
@@ -201,10 +176,6 @@ export default function TodayPage() {
             <p className="text-sm text-muted-foreground">{format(selDate, 'MMMM d, yyyy')}</p>
           </div>
           <div className="flex items-center gap-2.5">
-            <button onClick={() => setImportOpen((s) => !s)} title="Import your profile from another device"
-              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-              <DownloadCloud size={15} /> Import Profile
-            </button>
             {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
               <button onClick={jumpToday} title="Jump back to today"
                 className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg">
@@ -221,16 +192,6 @@ export default function TodayPage() {
             </button>
           </div>
         </div>
-
-        {importOpen && (
-          <div className="mt-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 p-3">
-            <p className="text-xs text-muted-foreground mb-2">Enter your <b className="text-foreground">profile code</b> (Settings → Profile Code on your other device) to load your courses, attendance & notes here.</p>
-            <div className="flex gap-2">
-              <Input value={importCode} onChange={(e) => setImportCode(e.target.value.toUpperCase())} placeholder="e.g. ZRKBWEE8" maxLength={8} className="font-mono tracking-wider text-sm" onKeyDown={(e) => e.key === 'Enter' && importProfile()} />
-              <Button onClick={importProfile} disabled={!importCode.trim() || importing} size="sm">Import</Button>
-            </div>
-          </div>
-        )}
 
         {/* Tabs: Courses · Mess · Bus */}
         <div className="mt-3 flex gap-1 bg-muted rounded-xl p-0.5">
@@ -297,7 +258,7 @@ export default function TodayPage() {
           <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
         ) : mySessions.length === 0 ? (
           <>
-            <Onboarding onImport={() => { setImportOpen(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} />
+            <Onboarding />
             {allForDate.length > 0 && (
               <div className="space-y-2.5 mt-3">
                 {allForDate.map((course) => (
@@ -447,7 +408,7 @@ function Disclaimer() {
 }
 
 // ─── New-user onboarding (cool branded landing) ───────────────────────────────
-function Onboarding({ onImport }: { onImport: () => void }) {
+function Onboarding() {
   const features = [
     { icon: GraduationCap, label: 'Classes' },
     { icon: Check, label: 'Attendance' },
@@ -479,16 +440,11 @@ function Onboarding({ onImport }: { onImport: () => void }) {
         <ol className="text-left text-xs text-muted-foreground space-y-1.5 mb-4">
           <li><b className="text-foreground">1.</b> Open <b className="text-foreground">Courses</b> → pick your electives.</li>
           <li><b className="text-foreground">2.</b> Your day appears here on <b className="text-foreground">Home</b> — mark attendance, add reminders.</li>
-          <li><b className="text-foreground">3.</b> Already set up elsewhere? Tap <b className="text-foreground">Import</b> (top-right) with your profile code.</li>
         </ol>
         <div className="flex items-center gap-2">
           <a href="/courses" className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-3 rounded-xl">
             <BookOpen size={16} /> Add your courses
           </a>
-          <span className="text-muted-foreground text-sm font-bold">/</span>
-          <button onClick={onImport} className="flex-1 flex items-center justify-center gap-1.5 border-2 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-sm font-bold px-4 py-2.5 rounded-xl">
-            <DownloadCloud size={16} /> Import Profile
-          </button>
         </div>
       </div>
     </div>

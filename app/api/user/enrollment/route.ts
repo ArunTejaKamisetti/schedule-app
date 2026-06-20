@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 
-// Set a user's year (and, for 1st-years, their section). A user is one year at a time; the
-// other year's setup is preserved (the year-aware user_sessions RPC just reads the active one).
-//   POST { userId, year: 1 | 2, section?: 'A'..'H'|'LSM'|'FIN' }
+// Set the signed-in user's year (and, for 1st-years, their section). A user is one year at a time;
+// the other year's setup is preserved (the year-aware user_sessions RPC reads the active one).
+//   POST { year: 1 | 2, section?: 'A'..'H'|'LSM'|'FIN' }
 export async function POST(req: NextRequest) {
-  const { userId, year, section } = await req.json()
-  if (!userId || (year !== 1 && year !== 2)) {
-    return NextResponse.json({ error: 'Missing userId or invalid year' }, { status: 400 })
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
+
+  const { year, section } = await req.json()
+  if (year !== 1 && year !== 2) {
+    return NextResponse.json({ error: 'Invalid year' }, { status: 400 })
   }
-  const supabase = createServiceClient()
   const patch = year === 1
     ? { year: 1, section: (section ?? '').toString().toUpperCase() || null }
     : { year: 2 } // keep section as-is; it's ignored while year=2

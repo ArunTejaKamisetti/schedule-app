@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 import { getUserSessions } from '@/lib/enrollment'
 import { summarizeAttendance, istNow } from '@/lib/attendance'
 
-// Per-picked-course attendance stats + meta.
-// GET /api/attendance/summary?userId=…
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+// Per-picked-course attendance stats + meta, for the signed-in user.
+// GET /api/attendance/summary
+export async function GET() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
 
-  const supabase = createServiceClient()
   const [sessions, attRes] = await Promise.all([
     getUserSessions(supabase, userId),
     supabase.from('attendance').select('course_id, status').eq('user_id', userId),

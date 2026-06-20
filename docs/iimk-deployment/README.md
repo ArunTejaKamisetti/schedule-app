@@ -38,7 +38,13 @@ Fits Supabase's free tier (500 MB DB, 50K monthly auth users). The real cost lev
 
 Order: 0 → 1 (auth is the foundation for RLS) → 2 → 3 → 4, with Phase 5 hardening applied throughout. Each phase stays runnable locally and is independently testable.
 
-**Current status (localdev):** Phases 0–1 done; Phase 2 enrollment-normalize + RLS + retention done; roster-driven enrollment + admin access hardening done. **Agreed remaining order (hard-first):** (1) **Normalisation / optimisation** — courses→master+`course_sessions` split, faculty table, edge caching of shared reads; (2) **admin panel** — a real `/admin` dashboard tying together roster/sync/preview/logs; (3) **bus & mess** — DB-backed + admin paste import.
+**Current status (localdev):** Phases 0–1 done; Phase 2 enrollment-normalize + RLS + retention done; roster-driven enrollment + admin access hardening done; edge caching, admin dashboard, and bus/mess paste-import done. **Phase 4 (secrets/DPDP) code side done** — `lib/env.ts` fail-fast validation wired via `instrumentation.ts`, OAuth callback no longer renders the refresh token (server-log only); secret *rotation* itself is a manual handover runbook (see [04](04-secrets-and-dpdp.md)).
+
+**Decision (2026-06):** the remaining `courses`→master+`course_sessions` split is **descoped**. The headline storage win (enrollment normalized to one row per course, ~52,839 → ~5–6k, migration 013) is already banked; the deferred master/sessions split was the high-risk half (needs a live DB to verify) and its remaining benefit is only de-duplicating course name/instructor — not worth the risk for this rollout.
+
+**Route-auth lockdown (Phase 5 §3) done.** New `lib/api-auth.ts#getAuthedSession()` (cookie-aware RLS client + verified `auth.uid()`); every own-data API route now derives identity from the session (client `userId` ignored) and runs on the RLS client so migration-014 RLS enforces. Cross-user friend routes keep the service client but take the caller from the session and add a friendship authz check. Impersonation vectors removed: `/api/user/resolve`→410, legacy `lib/session.ts` deleted, client import/recovery UI removed. The one documented exception is the `/api/calendar` .ics feed (external cookieless subscription; random-UUID bearer capability). Validation stays hand-rolled (no zod), per project convention.
+
+**Remaining (manual/ops at handover):** Phase 4 secret **rotation** runbook; apply migrations 013–016 to the live DB; optional `calendar_token` hardening; rate limiting (Phase 5 §4) and security headers (§6) if desired.
 
 **Biggest DB win (from real data):** `user_courses` is 52,839 rows because enrollment is stored per *session*; pointing enrollment at the course master collapses it ~10× to ~5–6k. See [02-database.md](02-database.md).
 

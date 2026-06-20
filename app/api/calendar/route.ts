@@ -4,6 +4,12 @@ import { getUserSessions } from '@/lib/enrollment'
 import ical, { ICalEventStatus } from 'ical-generator'
 import type { Course } from '@/lib/types'
 
+// DELIBERATE EXCEPTION to "never trust a client-supplied userId": this is an .ics SUBSCRIPTION
+// feed that EXTERNAL calendar apps (Apple/Google "add by URL") poll with NO session cookie, so
+// cookie auth is impossible here. The `userId` is the random `auth.uid()` UUID, which functions
+// as an unguessable bearer capability token for a read-only, low-sensitivity schedule. If stronger
+// secrecy is wanted later, swap it for a dedicated rotatable `calendar_token` column (TODO).
+
 // Build the absolute UTC instant for an IST (Asia/Kolkata, UTC+5:30) wall-clock time.
 function istInstant(dateISO: string, timeHHMM: string): Date | null {
   if (!dateISO || !timeHHMM) return null

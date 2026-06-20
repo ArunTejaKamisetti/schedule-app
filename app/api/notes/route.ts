@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 
-// GET /api/notes?userId=…  → [{ course_id, session_date, body }]
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
-  const supabase = createServiceClient()
+// Identity is the signed-in user (session cookie); RLS enforces auth.uid() = user_id.
+
+// GET /api/notes  → [{ course_id, session_date, body }] for the signed-in user
+export async function GET() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
   const { data, error } = await supabase.from('notes').select('course_id, session_date, body').eq('user_id', userId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)
 }
 
-// POST /api/notes  { userId, courseId, sessionDate, body }   (empty body deletes)
+// POST /api/notes  { courseId, sessionDate, body }   (empty body deletes)
 export async function POST(req: NextRequest) {
-  const { userId, courseId, sessionDate, body } = await req.json()
-  if (!userId || !courseId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
-  const supabase = createServiceClient()
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
+
+  const { courseId, sessionDate, body } = await req.json()
+  if (!courseId) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
   if (!body || !String(body).trim()) {
     await supabase.from('notes').delete().eq('user_id', userId).eq('course_id', courseId)

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Copy, Check, Bell, BellOff, Calendar, ExternalLink,
-  Download, Sheet, Info, Link2, Sun, Moon, Monitor, Pencil, ChevronDown, Apple, CalendarCheck, Unplug,
+  Download, Sheet, Info, Sun, Moon, Monitor, Pencil, ChevronDown, Apple, CalendarCheck, Unplug,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
@@ -152,7 +152,6 @@ export default function SettingsPage() {
   const host = mounted ? window.location.host : ''
   const webcalUrl = `webcal://${host}/api/calendar?userId=${userId}`
   const httpsFeedUrl = `${origin}/api/calendar?userId=${userId}`
-  const recoveryLink = `${origin}/?t=${userId}`
 
   function subscribeCalendar() { window.location.href = webcalUrl }
   function addToGoogle() {
@@ -347,29 +346,6 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground mt-1">Share with friends so they can add you (public).</p>
         </Section>
 
-        {/* Profile code — PRIVATE, used to import your profile on another device */}
-        <Section title="Profile Code (private)">
-          <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
-            <span className="text-2xl font-mono font-bold tracking-widest text-amber-900 dark:text-amber-100 flex-1">
-              {user?.import_code || '——————'}
-            </span>
-            <button onClick={() => copy(user?.import_code ?? '', 'import', 'Code copied!')} title="Copy your private Profile Code" className="p-2 rounded-lg bg-card border border-amber-200 dark:border-amber-800">
-              {copied === 'import' ? <Check size={16} className="text-green-500" /> : <Copy size={16} className="text-amber-600" />}
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            <b className="text-amber-600 dark:text-amber-400">Keep private.</b> On a new device: <b className="text-foreground">Courses → Import</b> → type this to load your whole profile.
-          </p>
-        </Section>
-
-        {/* Save your access — recovery link */}
-        <Section title="Save your access (link)">
-          <p className="text-xs text-muted-foreground mb-2">
-            Or bookmark this link to restore your schedule directly.
-            <span className="text-amber-600 dark:text-amber-400"> Anyone with it can see your schedule.</span>
-          </p>
-          <CopyField value={recoveryLink} copied={copied === 'recovery'} onCopy={() => copy(recoveryLink, 'recovery', 'Recovery link copied')} icon={<Link2 size={14} />} />
-        </Section>
 
         {/* Source */}
         <Section title="Source Schedule">

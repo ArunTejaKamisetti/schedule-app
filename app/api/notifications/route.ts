@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 
-// GET /api/notifications?userId=xxx
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+// Identity is the signed-in user (session cookie); RLS enforces auth.uid() = user_id.
 
-  const supabase = createServiceClient()
+// GET /api/notifications  → latest 50 for the signed-in user
+export async function GET() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
+
   const { data, error } = await supabase
     .from('notifications')
     .select('*, course:course_id(course_code, course_name)')
@@ -18,12 +20,13 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data)
 }
 
-// PATCH /api/notifications  → mark as read
+// PATCH /api/notifications  { notificationId?, markAll? }  → mark as read
 export async function PATCH(req: NextRequest) {
-  const { userId, notificationId, markAll } = await req.json()
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
 
-  const supabase = createServiceClient()
+  const { notificationId, markAll } = await req.json()
 
   if (markAll) {
     await supabase.from('notifications').update({ read: true }).eq('user_id', userId)
@@ -34,14 +37,15 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true })
 }
 
-// DELETE /api/notifications?userId=xxx&id=yyy  (or &all=1 to clear all)
+// DELETE /api/notifications?id=yyy  (or &all=1 to clear all) for the signed-in user
 export async function DELETE(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const { supabase, userId } = session
+
   const id = req.nextUrl.searchParams.get('id')
   const all = req.nextUrl.searchParams.get('all')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
-  const supabase = createServiceClient()
   let q = supabase.from('notifications').delete().eq('user_id', userId)
   if (!all) {
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })

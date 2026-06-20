@@ -1,17 +1,20 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getUserSessions } from '@/lib/enrollment'
 import { busySlots } from '@/lib/free-time'
+import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 import type { Course } from '@/lib/types'
 
 // Free Time Analysis data for the popup: You + every accepted friend, each as a compact
 // `busyByDate` map (the canonical slots they're busy in, per date). The client intersects any
-// selected subset locally, so toggling friends never needs a refetch.
-//   GET /api/friends/free-time?userId=X
+// selected subset locally, so toggling friends never needs a refetch. The signed-in user is the
+// pivot; only THEIR accepted friends are analysed, so no cross-user leak is possible.
+//   GET /api/friends/free-time
 //   → { dates: string[], people: [{ id, name, busyByDate: { [iso]: string[] } }] }  (people[0] = You)
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('userId')
-  if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+export async function GET() {
+  const session = await getAuthedSession()
+  if (!session) return unauthorized()
+  const userId = session.userId
   const supabase = createServiceClient()
 
   // Accepted friends → the set of people to analyse (You first).
