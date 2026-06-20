@@ -35,3 +35,26 @@
 ## Critical files
 
 `.env.example`, `lib/env.ts`. (Retention purge already shipped in `app/api/cron/retention`.)
+
+---
+
+## Status / progress (code side — `localdev`)
+
+Done (the code-side of Phase 4; rotation itself is a manual ops step at handover):
+- **Fail-fast env validation.** `lib/env.ts` (`REQUIRED_SERVER_ENV`, `validateEnv`, `assertServerEnv`) lists every required var and is wired through `instrumentation.ts`'s `register()` (Node runtime only) so a misconfigured deploy throws one aggregated "Missing required environment variable(s): …" at server boot instead of a confusing mid-request null. Unit-tested in `tests/env.test.ts`.
+- **No tokens rendered into HTML.** `app/api/admin/oauth/callback/route.ts` no longer writes `GOOGLE_REFRESH_TOKEN` into the page — it logs it to the **server log** only (admin copies it from Vercel/terminal logs into the env var, then clears the line). Closes [05 §8](05-security-hardening.md).
+- `.env.example` carries all 15 required vars plus optional `RETENTION_DAYS`.
+
+## Rotation runbook (manual — run at handover to the institutional account)
+
+These are console operations the operator (Arun → college admin) performs; the app can't do them.
+
+1. **Supabase (institutional project):** create the project under the college account. Settings → API → copy the new `URL`, `anon`, `service_role`. Settings → API → *rotate* the service-role/JWT secret. Put the new values in Vercel env (prod) only.
+2. **Google Cloud (institutional account):** new OAuth client (web) → set `GOOGLE_CLIENT_ID`/`SECRET`/`REDIRECT_URI`; delete the old personal client. Re-run the in-app connect flow → grab `GOOGLE_REFRESH_TOKEN` from the **server log** (not the page) → store in Vercel env.
+3. **Google Sheet:** move/copy the schedule sheet to the institutional account; set `GOOGLE_SHEET_ID`.
+4. **VAPID:** `npx web-push generate-vapid-keys` → set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL`.
+5. **CRON_SECRET:** generate a fresh random string; set in Vercel env and in the cron scheduler's bearer header.
+6. **Delete stale old-project keys** from `.env.local` and anywhere else; confirm `.env*` is git-ignored and no secret is committed in history.
+7. **Verify:** redeploy; `instrumentation.ts` will fail the boot if any var is missing. Smoke-test sign-in + a sync.
+
+> `localdev` keeps using the **dev** Supabase project + **dev** Google OAuth client in `.env.local`; rotation above is for the **prod/institutional** deploy and never touches the dev secrets.

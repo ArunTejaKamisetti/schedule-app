@@ -30,6 +30,16 @@ export async function GET(req: NextRequest) {
 
   const { tokens } = await oauth2Client.getToken(code)
 
+  // NEVER render the refresh token into the page (it would land in browser history, proxies,
+  // screenshots). Write it to the SERVER log only — the admin copies it from the deploy logs
+  // (Vercel → Logs, or the local terminal) into the GOOGLE_REFRESH_TOKEN env var.
+  const gotToken = Boolean(tokens.refresh_token)
+  if (gotToken) {
+    console.log('[admin/oauth] GOOGLE_REFRESH_TOKEN (copy into env, then revoke this log):', tokens.refresh_token)
+  } else {
+    console.warn('[admin/oauth] No refresh_token returned — re-run the consent flow with prompt=consent.')
+  }
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -37,11 +47,11 @@ export async function GET(req: NextRequest) {
 <style>body{font-family:monospace;max-width:700px;margin:40px auto;padding:20px;background:#0f0f0f;color:#0f0;}</style>
 </head>
 <body>
-<h2>✅ Google OAuth Success</h2>
-<p>Copy this refresh token and add it to your Vercel environment variables as <strong>GOOGLE_REFRESH_TOKEN</strong>:</p>
-<textarea readonly rows="4" style="width:100%;background:#1a1a1a;color:#0f0;border:1px solid #0f0;padding:10px;font-size:12px;">${tokens.refresh_token ?? 'No refresh token — re-run with prompt=consent'}</textarea>
-<p style="color:#ff0">⚠️ Keep this token secret. Add it to Vercel env vars, not to your code.</p>
-<p>Access token (expires): <code>${tokens.access_token?.substring(0, 30)}...</code></p>
+<h2>${gotToken ? '✅ Google OAuth Success' : '⚠️ No refresh token returned'}</h2>
+${gotToken
+  ? `<p>The refresh token was written to the <strong>server logs</strong> (Vercel → Logs, or your local terminal). Copy it from there into the <strong>GOOGLE_REFRESH_TOKEN</strong> environment variable — it is intentionally <em>not</em> shown here.</p>
+<p style="color:#ff0">⚠️ Treat it as a secret: store it in env vars only, then clear the log line.</p>`
+  : `<p>Google did not return a refresh token. Re-run the connect flow forcing consent (<code>prompt=consent&access_type=offline</code>).</p>`}
 <p><a href="/admin/preview" style="color:#0ff">→ Preview Sheet Data</a></p>
 </body>
 </html>`
