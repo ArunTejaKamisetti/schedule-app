@@ -13,7 +13,7 @@ The app works but was built as a personal dev tool. For a college-wide rollout i
 - **An admin mode.** Schedules come from developer-maintained Google Sheets; bus/mess are hardcoded in `lib/bus.ts` / `lib/mess.ts`. There is no admin UI.
 - **DPDP compliance.** No sign-in, consent, privacy notice, export, deletion, or retention.
 
-**Goal:** robust, secure, DPDP-compliant, ₹0 to run at ~2,400 students, preserving every existing feature.
+**Goal:** robust, secure, ₹0 to run at ~2,400 students, preserving every existing feature. (Full DPDP — consent/export/delete — is **descoped**; we keep only the basics: retention purge, server-only tokens, domain-restricted sign-in. See [04-secrets-and-dpdp.md](04-secrets-and-dpdp.md).)
 
 ## Confirmed decisions
 
@@ -21,7 +21,7 @@ The app works but was built as a personal dev tool. For a college-wide rollout i
 2. **Database:** stay on Supabase free tier (₹0 at this scale); normalize + add RLS. → [02-database.md](02-database.md)
 3. **Admin:** secured in-app admin dashboard; keep Google Sheets as schedule source (institutional account). → [03-admin-dashboard.md](03-admin-dashboard.md)
 4. **Identity/data:** fresh start. Admin shares the schedule sheet, a **roster** (email → section/electives) that auto-fills schedules (manual picker hidden), and adds **bus/mess** data by pasting a table generated in any free chat tool (copy-paste only; no paid API). → [03-admin-dashboard.md](03-admin-dashboard.md)
-5. **Secrets & DPDP:** all secrets to the institutional account, rotated; consent/export/delete/retention. → [04-secrets-and-dpdp.md](04-secrets-and-dpdp.md)
+5. **Secrets:** all secrets to the institutional account, rotated. **DPDP descoped** to basics only (retention purge + server-only tokens + domain-restricted sign-in; no consent/export/delete). → [04-secrets-and-dpdp.md](04-secrets-and-dpdp.md)
 
 ## Scale & cost (≈ 800 × 3 = 2,400 students)
 
@@ -37,6 +37,8 @@ Fits Supabase's free tier (500 MB DB, 50K monthly auth users). The real cost lev
 - **Phase 5 — Security hardening.** Built-in only, no external/paid tool. See [05-security-hardening.md](05-security-hardening.md).
 
 Order: 0 → 1 (auth is the foundation for RLS) → 2 → 3 → 4, with Phase 5 hardening applied throughout. Each phase stays runnable locally and is independently testable.
+
+**Current status (localdev):** Phases 0–1 done; Phase 2 enrollment-normalize + RLS + retention done; roster-driven enrollment + admin access hardening done. **Agreed remaining order (hard-first):** (1) **Normalisation / optimisation** — courses→master+`course_sessions` split, faculty table, edge caching of shared reads; (2) **admin panel** — a real `/admin` dashboard tying together roster/sync/preview/logs; (3) **bus & mess** — DB-backed + admin paste import.
 
 **Biggest DB win (from real data):** `user_courses` is 52,839 rows because enrollment is stored per *session*; pointing enrollment at the course master collapses it ~10× to ~5–6k. See [02-database.md](02-database.md).
 
@@ -57,6 +59,6 @@ Order: 0 → 1 (auth is the foundation for RLS) → 2 → 3 → 4, with Phase 5 
 5. Roster: upload → listed student signs in → schedule auto-fills, picker hidden.
 6. Bus/mess: admin uploads photo → reviews extracted table → saves → next-bus + stop filtering + mess-by-day still work.
 7. Admin gating: `/admin/**`, sync trigger, OAuth routes blocked for students; refresh token never rendered.
-8. DPDP: consent on first sign-in; export returns JSON; delete removes profile + owned rows + auth user; retention purge removes old-term rows.
+8. Data basics: retention purge removes old-term rows; token tables have no client access (RLS). (Consent/export/delete are descoped.)
 9. `npm run test`, `npm run lint`.
 10. `localdev` not built by Vercel; uses only the dev Supabase + dev OAuth client.

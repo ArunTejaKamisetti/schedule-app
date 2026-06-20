@@ -18,14 +18,20 @@
 | `CRON_SECRET` | personal | institutional (rotated) |
 | Old-project Supabase keys | leftover in `.env.local` | **deleted** |
 
-## DPDP compliance (data fiduciary = the college)
+## Data protection — basics only (full DPDP descoped)
 
-- **Consent:** screen at first sign-in (record `profiles.consent_at`) + an in-app privacy notice (data collected, purpose, retention, contact).
-- **Right to access:** "Export my data" endpoint returning the user's profile / enrollments / attendance / notes / friends as JSON.
-- **Right to erasure:** "Delete my account" — removes the profile, cascades user-owned rows, and deletes the Supabase auth user.
-- **Retention:** the Phase-2 purge job; document the window in the notice.
-- **Token protection:** Google/calendar token tables stay server-only; RLS denies all client access.
+> **Decision (Arun):** we are **not** building the full DPDP feature set (no consent screen, no
+> self-service export, no self-service account deletion). The basics already in place are
+> considered sufficient for this rollout. Keep:
+>
+> - **Retention:** the Phase-2 purge job (`/api/cron/retention`) trims old-term attendance/notes/
+>   notifications — already built.
+> - **Token protection:** Google/calendar token tables are server-only; RLS denies client access — already in place (migration 014).
+> - **Domain-restricted identity:** only `@iimk.ac.in` Google accounts (Phase 1).
+>
+> Dropped (do **not** build unless revisited): consent-at-first-sign-in screen, privacy-notice page,
+> "export my data" endpoint, "delete my account" flow.
 
 ## Critical files
 
-`.env.example`, `lib/env.ts`, new export/delete endpoints under `app/api/**`, consent UI, privacy-notice page, retention purge in `app/api/cron/*`.
+`.env.example`, `lib/env.ts`. (Retention purge already shipped in `app/api/cron/retention`.)
