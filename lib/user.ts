@@ -1,4 +1,5 @@
 import { createServiceClient } from './supabase/server'
+import { isAdminEmail, parseAdminEmails } from './auth'
 import type { User } from './types'
 
 function generateShareCode(): string {
@@ -8,16 +9,6 @@ function generateShareCode(): string {
     code += chars[Math.floor(Math.random() * chars.length)]
   }
   return code
-}
-
-// Emails (comma-separated in ADMIN_EMAILS) that get the admin role on first sign-in.
-function isAdminEmail(email?: string | null): boolean {
-  if (!email) return false
-  const admins = (process.env.ADMIN_EMAILS || '')
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
-  return admins.includes(email.toLowerCase())
 }
 
 export async function getOrCreateUser(userId: string, email?: string | null): Promise<User> {
@@ -54,7 +45,7 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .insert({
       id: userId,
       email: email ?? null,
-      role: isAdminEmail(email) ? 'admin' : 'student',
+      role: isAdminEmail(email, parseAdminEmails(process.env.ADMIN_EMAILS)) ? 'admin' : 'student',
       share_code: shareCode,
       import_code: generateShareCode(),
     })
