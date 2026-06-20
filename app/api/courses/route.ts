@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
+// Everything this route returns is the SAME schedule for every student (catalog, section
+// timetables, common events) — the real egress lever at ~2,400 users. Cache it at the edge:
+// the shared read is served from Vercel's CDN, and the DB is hit at most ~once per window per
+// distinct URL. The schedule only changes on a sync, so a few minutes of staleness is fine, and
+// stale-while-revalidate keeps it instant during a refresh. Per-user data lives in
+// /api/courses/user, which is NOT cached.
+const SHARED_CACHE = 'public, s-maxage=300, stale-while-revalidate=600'
+const cached = (data: unknown) => NextResponse.json(data, { headers: { 'Cache-Control': SHARED_CACHE } })
+
 export async function GET(req: NextRequest) {
   const supabase = createServiceClient()
   const params = req.nextUrl.searchParams
@@ -13,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (params.get('catalog')) {
     const { data, error } = await supabase.rpc('course_catalog')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    return cached(data)
   }
 
   // 1st-year sections that have a timetable loaded (distinct sheet_tab where year = 1).
@@ -21,7 +30,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabase
       .from('courses').select('sheet_tab').eq('year', 1).eq('is_common', false)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json([...new Set((data ?? []).map((r: { sheet_tab: string }) => r.sheet_tab))].sort())
+    return cached([...new Set((data ?? []).map((r: { sheet_tab: string }) => r.sheet_tab))].sort())
   }
 
   // Common events (exams/holidays) — shown to everyone of that year.
@@ -31,7 +40,7 @@ export async function GET(req: NextRequest) {
     if (year) q = q.eq('year', Number(year))
     const { data, error } = await q
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    return cached(data)
   }
 
   let query = supabase
@@ -47,5 +56,5 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return cached(data)
 }
