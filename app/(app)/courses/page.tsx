@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
+import { useCatalog, useUserSessions, useAttendanceSummary } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -41,29 +42,27 @@ export default function CoursesPage() {
   const { userId, user } = useSession()
   const [yearTab, setYearTab] = useState<1 | 2>(2)
   const [yearTabDecided, setYearTabDecided] = useState(false)
-  const [allCourses, setAllCourses] = useState<Course[]>([])
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [picking, setPicking] = useState(false) // first-time picker, stays open until "Done"
   const [userLoaded, setUserLoaded] = useState(false)
   const [decided, setDecided] = useState(false)
-  const [summary, setSummary] = useState<CourseStat[]>([])
   const [, startTransition] = useTransition()
 
+  // Shared, deduped & edge-cached data (see lib/hooks.ts).
+  const { courses: allCourses, isLoading: loading } = useCatalog()
+  const { codes: serverCodes, rows: sessionRows, mutate: mutateSessions } = useUserSessions(userId)
+  const { summary } = useAttendanceSummary(userId, !editing)
+
+  // Seed the editable selection ONCE from the server (optimistic toggles below own it afterward).
   useEffect(() => {
-    // Catalog = one representative row per course (complete, no 1000-row cap).
-    fetch('/api/courses?catalog=1')
-      .then((r) => r.json())
-      .then((courses: Course[]) => {
-        setAllCourses(Array.isArray(courses) ? courses : [])
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
+    if (sessionRows === undefined || userLoaded) return
+    setSelectedCodes(new Set(serverCodes))
+    setUserLoaded(true)
+  }, [sessionRows, serverCodes, userLoaded])
 
   // Default the active tab to the user's year once known (1st-years open straight into sections).
   useEffect(() => {
@@ -71,17 +70,6 @@ export default function CoursesPage() {
     setYearTab(user.year === 1 && YEAR1_ENABLED ? 1 : 2)
     setYearTabDecided(true)
   }, [yearTabDecided, user])
-
-  useEffect(() => {
-    if (!userId) return
-    fetch(`/api/courses/user?userId=${userId}`)
-      .then((r) => r.json())
-      .then((data: { courses: Course }[]) => {
-        setSelectedCodes(new Set(data.map((d) => d.courses?.course_code).filter(Boolean)))
-        setUserLoaded(true)
-      })
-      .catch(() => setUserLoaded(true))
-  }, [userId])
 
   // Decide the initial view ONCE, after the user's existing picks are known: a brand-new
   // user (no picks) opens straight into the picker and stays there until they tap "Done"
@@ -91,15 +79,6 @@ export default function CoursesPage() {
     setPicking(selectedCodes.size === 0)
     setDecided(true)
   }, [decided, loading, userLoaded, selectedCodes])
-
-  // Attendance stats for the static "My Courses" view (refreshed when leaving edit mode).
-  useEffect(() => {
-    if (!userId || editing) return
-    fetch(`/api/attendance/summary?userId=${userId}`)
-      .then((r) => r.json())
-      .then((d: CourseStat[]) => setSummary(Array.isArray(d) ? d : []))
-      .catch(() => {})
-  }, [userId, editing])
 
   // One card per unique course (GT-A, GT-B are distinct courses).
   const courseGroups = useMemo<CourseGroup[]>(() => {
@@ -173,6 +152,8 @@ export default function CoursesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, courseCode: group.code, action: select ? 'add' : 'remove' }),
         })
+        // Refresh the shared sessions cache so Home/Schedule reflect the pick without a full reload.
+        mutateSessions()
       } catch {
         toast.error('Could not update. Try again.')
         setSelectedCodes((prev) => {

@@ -7,6 +7,7 @@ import { format, parseISO } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
+import { useUserSessions, useCommonEvents, useFriends } from '@/lib/hooks'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CANONICAL_SLOTS, isBusyAt } from '@/lib/free-time'
 import type { Course } from '@/lib/types'
@@ -21,29 +22,18 @@ function CompareContent() {
   const { userId, user } = useSession()
   const params = useSearchParams()
   const friendId = params.get('friendId')
-  const [mine, setMine] = useState<Course[]>([])
-  const [theirs, setTheirs] = useState<Course[]>([])
-  const [common, setCommon] = useState<Course[]>([])
-  const [friendName, setFriendName] = useState('Friend')
-  const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState('')
 
-  useEffect(() => {
-    if (!userId || !friendId) return
-    Promise.all([
-      fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses/user?userId=${friendId}`).then((r) => r.json()),
-      fetch(`/api/friends?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()),
-    ]).then(([m, t, friends, cmn]: [{ courses: Course }[], { courses: Course }[], { friend_id: string; friend: { display_name: string } }[], Course[]]) => {
-      setMine((m ?? []).map((d) => d.courses).filter(Boolean))
-      setTheirs((t ?? []).map((d) => d.courses).filter(Boolean))
-      setCommon(Array.isArray(cmn) ? cmn : [])
-      const f = friends?.find((fr) => fr.friend_id === friendId)
-      if (f?.friend?.display_name) setFriendName(f.friend.display_name)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [userId, friendId, user?.year])
+  // Shared, deduped data — both schedules and the common events come straight from the SWR cache.
+  const year = user?.year === 1 ? 1 : 2
+  const { courses: mine, isLoading: loadingMine } = useUserSessions(userId)
+  const { courses: theirs, isLoading: loadingTheirs } = useUserSessions(friendId)
+  const { events: common } = useCommonEvents(userId ? year : null)
+  const { friends } = useFriends(userId)
+
+  const friendName =
+    friends.find((fr) => fr.friend_id === friendId)?.friend?.display_name ?? 'Friend'
+  const loading = !userId || !friendId || loadingMine || loadingTheirs
 
   // Include common events (mid/end-term exams) so the strip covers the whole term to 31 Aug —
   // both friends "share" those days. Enrolled classes alone stop in mid-August.

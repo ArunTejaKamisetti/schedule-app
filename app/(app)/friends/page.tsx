@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Sparkles, Search, CalendarClock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -8,15 +8,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { FreeTimeDialog } from '@/components/free-time-dialog'
 import { useSession } from '@/components/session-provider'
+import { useFriends } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import type { Friendship, User } from '@/lib/types'
+import type { User } from '@/lib/types'
 import Link from 'next/link'
 
 export default function FriendsPage() {
   const { userId, shareCode, user } = useSession()
-  const [friends, setFriends] = useState<(Friendship & { friend: User })[]>([])
-  const [loading, setLoading] = useState(true)
+  const { friends: rawFriends, isLoading: loading, mutate: mutateFriends } = useFriends(userId)
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -28,6 +28,18 @@ export default function FriendsPage() {
 
   const myName = savedName || user?.display_name || ''
 
+  // Accepted friends, named first then "Anonymous" — derived from the shared SWR cache.
+  const friends = useMemo(() => {
+    const accepted = rawFriends.filter((f) => f.status === 'accepted')
+    accepted.sort((a, b) => {
+      const an = a.friend?.display_name?.trim() ? 0 : 1
+      const bn = b.friend?.display_name?.trim() ? 0 : 1
+      if (an !== bn) return an - bn
+      return (a.friend?.display_name ?? '').localeCompare(b.friend?.display_name ?? '')
+    })
+    return accepted
+  }, [rawFriends])
+
   // Filter the friends list by name or share code.
   const visibleFriends = useMemo(() => {
     const q = friendSearch.trim().toLowerCase()
@@ -37,25 +49,6 @@ export default function FriendsPage() {
       (f.friend?.share_code ?? '').toLowerCase().includes(q)
     )
   }, [friends, friendSearch])
-
-  useEffect(() => {
-    if (!userId) return
-    fetch(`/api/friends?userId=${userId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const accepted = data.filter((f: Friendship) => f.status === 'accepted')
-        // Named friends first; "Anonymous" (no display_name) at the bottom.
-        accepted.sort((a: Friendship & { friend: User }, b: Friendship & { friend: User }) => {
-          const an = a.friend?.display_name?.trim() ? 0 : 1
-          const bn = b.friend?.display_name?.trim() ? 0 : 1
-          if (an !== bn) return an - bn
-          return (a.friend?.display_name ?? '').localeCompare(b.friend?.display_name ?? '')
-        })
-        setFriends(accepted)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [userId])
 
   async function saveName() {
     const name = nameDraft.trim()
@@ -93,17 +86,17 @@ export default function FriendsPage() {
       }
       toast.success(`Added ${data.friend.display_name ?? 'friend'}!`)
       setAddCode('')
-      // Refresh list
-      const updated = await fetch(`/api/friends?userId=${userId}`).then((r) => r.json())
-      setFriends(updated.filter((f: Friendship) => f.status === 'accepted'))
+      // Refresh the shared list (also reflected in Compare).
+      mutateFriends()
     } finally {
       setAdding(false)
     }
   }
 
   async function removeFriend(friendId: string) {
-    await fetch(`/api/friends?userId=${userId}&friendId=${friendId}`, { method: 'DELETE' })
-    setFriends((prev) => prev.filter((f) => f.friend_id !== friendId))
+    // Optimistically drop from the shared cache, then delete on the server.
+    mutateFriends((prev) => (prev ?? []).filter((f) => f.friend_id !== friendId), { revalidate: false })
+    await fetch(`/api/friends?userId=${userId}&friendId=${friendId}`, { method: 'DELETE' }).catch(() => {})
     toast.success('Friend removed')
   }
 

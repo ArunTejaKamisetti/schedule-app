@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo, createContext, useContext } from 'react'
+import { useState, useMemo, createContext, useContext } from 'react'
 import { CalendarRange, Sheet as SheetIcon, MapPin, User, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight, Check, X, StickyNote, Clock } from 'lucide-react'
 import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
+import { useUserSessions, useWindowCourses, useAttendance, useNotes } from '@/lib/hooks'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -49,13 +50,8 @@ export default function SchedulePage() {
   const { userId, user } = useSession()
   const todayISO = localISO(new Date())
   const [weekStart, setWeekStart] = useState(weekStartISO(new Date()))
-  const [windowCourses, setWindowCourses] = useState<Course[]>([])
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'week' | 'day'>('week')
   const [selectedDate, setSelectedDate] = useState(todayISO)
-  const [attMap, setAttMap] = useState<Record<string, string>>({})
-  const [noteMap, setNoteMap] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Course | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
 
@@ -64,41 +60,18 @@ export default function SchedulePage() {
     [weekStart]
   )
 
-  useEffect(() => {
-    if (!userId) return
-    fetch(`/api/courses/user?userId=${userId}`)
-      .then((r) => r.json())
-      .then((data: { course_id: string }[]) => setSelectedIds(new Set(data.map((d) => d.course_id))))
-      .catch(console.error)
-    fetch(`/api/attendance?userId=${userId}`).then((r) => r.json())
-      .then((a: { course_id: string; status: string }[]) => setAttMap(Object.fromEntries((a ?? []).map((x) => [x.course_id, x.status])))).catch(() => {})
-    fetch(`/api/notes?userId=${userId}`).then((r) => r.json())
-      .then((n: { course_id: string; body: string }[]) => setNoteMap(Object.fromEntries((n ?? []).map((x) => [x.course_id, x.body])))).catch(() => {})
-  }, [userId])
+  // Shared, deduped data (see lib/hooks.ts). selectedIds = the user's picked session ids.
+  const { ids: selectedIds } = useUserSessions(userId)
+  const { map: attMap, setStatus: markAttendance } = useAttendance(userId)
+  const { map: noteMap, setNote } = useNotes(userId)
+  const { courses: windowCourses, isLoading: loading } = useWindowCourses(weekDates[0], weekDates[6])
 
   function openDetail(c: Course) { setSelected(c); setNoteDraft(noteMap[c.id] ?? '') }
 
-  async function markAttendance(courseId: string, status: 'present' | 'absent' | null) {
-    setAttMap((p) => { const n = { ...p }; if (status === null) delete n[courseId]; else n[courseId] = status; return n })
-    await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, courseId, status }) }).catch(() => {})
-  }
-
   async function saveNote(course: Course) {
-    const body = noteDraft.trim()
-    setNoteMap((p) => { const n = { ...p }; if (!body) delete n[course.id]; else n[course.id] = body; return n })
-    await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, courseId: course.id, sessionDate: course.session_date, body }) }).catch(() => {})
+    await setNote(course.id, course.session_date, noteDraft)
     setSelected(null)
   }
-
-  useEffect(() => {
-    setLoading(true)
-    const from = weekDates[0]
-    const to = weekDates[6]
-    fetch(`/api/courses?from=${from}&to=${to}`)
-      .then((r) => r.json())
-      .then((c: Course[]) => { setWindowCourses(c ?? []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [weekDates])
 
   // Courses to display for the week: my picks + common events (exams) for MY year only — the
   // window fetch now returns both years' rows, so scope common events by the viewer's year.
