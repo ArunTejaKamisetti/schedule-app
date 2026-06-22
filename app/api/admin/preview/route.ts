@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server'
-import { fetchBothSheetTabs, parseSheetRows } from '@/lib/sheets'
+import { fetchBothSheetTabsWithFormatting, parseSheetRows } from '@/lib/sheets'
 import { requireAdmin } from '@/lib/admin'
+import { resolveSheetSources } from '@/lib/schedule-sources'
+import { createServiceClient } from '@/lib/supabase/server'
 
 export async function GET() {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 })
   }
   try {
-    const data = await fetchBothSheetTabs()
+    const sources = await resolveSheetSources(createServiceClient())
+    const source = sources.find((s) => s.sheetId)
+    if (!source) {
+      return NextResponse.json({ error: 'No schedule source configured — paste a Google Sheet link in Admin → Schedule.' }, { status: 400 })
+    }
+    const data = await fetchBothSheetTabsWithFormatting(source)
     const parsed1 = parseSheetRows(data.sheet1)
     const parsed2 = parseSheetRows(data.sheet2)
 

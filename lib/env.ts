@@ -10,21 +10,19 @@
 
 // Server-only vars the app cannot run without. NEXT_PUBLIC_* are validated too (they must exist at
 // build time for the client bundle, but a missing one at runtime is still worth catching early).
+//
+// Deliberately NOT here (the app boots and runs without them):
+//   • Google (CLIENT_ID/SECRET/REDIRECT_URI/SHEET_ID/REFRESH_TOKEN) — sheet reading is configured at
+//     runtime via the DB (`google_integration` + admin-pasted `schedule_sources`), not env.
+//   • VAPID (PUBLIC/PRIVATE/EMAIL) — web push is optional; without keys the push UI is hidden and
+//     send is skipped (lib/notify.ts guards before use).
 export const REQUIRED_SERVER_ENV = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
   'ALLOWED_EMAIL_DOMAIN',
   'ADMIN_EMAILS',
-  'GOOGLE_CLIENT_ID',
-  'GOOGLE_CLIENT_SECRET',
-  'GOOGLE_REDIRECT_URI',
-  'GOOGLE_SHEET_ID',
-  'GOOGLE_REFRESH_TOKEN',
   'CRON_SECRET',
-  'NEXT_PUBLIC_VAPID_PUBLIC_KEY',
-  'VAPID_PRIVATE_KEY',
-  'VAPID_EMAIL',
   'NEXT_PUBLIC_APP_URL',
 ] as const
 

@@ -3,8 +3,13 @@ export default async function AdminPreviewPage() {
   let error: string | null = null
 
   try {
-    const { fetchBothSheetTabs, parseSheetRows } = await import('@/lib/sheets')
-    const raw = await fetchBothSheetTabs()
+    const { fetchBothSheetTabsWithFormatting, parseSheetRows } = await import('@/lib/sheets')
+    const { resolveSheetSources } = await import('@/lib/schedule-sources')
+    const { createServiceClient } = await import('@/lib/supabase/server')
+    const sources = await resolveSheetSources(createServiceClient())
+    const source = sources.find((s) => s.sheetId)
+    if (!source) throw new Error('No schedule source configured — paste a Google Sheet link in Admin → Schedule.')
+    const raw = await fetchBothSheetTabsWithFormatting(source)
     const parsed1 = parseSheetRows(raw.sheet1)
     const parsed2 = parseSheetRows(raw.sheet2)
     data = {
@@ -26,7 +31,7 @@ export default async function AdminPreviewPage() {
           <strong style={{ color: '#f00' }}>Error:</strong> {error}
           <br /><br />
           <span style={{ color: '#aaa', fontSize: 12 }}>
-            Make sure GOOGLE_REFRESH_TOKEN is set. Visit <a href="/api/admin/oauth" style={{ color: '#6366f1' }}>/api/admin/oauth</a> to authenticate.
+            Connect Google once and paste a sheet link in <a href="/admin/schedule" style={{ color: '#6366f1' }}>Admin → Schedule</a>.
           </span>
         </div>
       )}

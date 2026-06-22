@@ -1,10 +1,7 @@
 import { google } from 'googleapis'
 import type { CellFormat, RawSheetData, SheetMerge } from './types'
 import type { SheetSource } from './sheets-config'
-
-const SHEET_ID = process.env.GOOGLE_SHEET_ID!
-const SCHEDULE_TAB = 'Term IV Schedule'
-const DETAILS_TAB = 'Course Details'
+import { getSheetsOAuthClient } from './google-auth'
 
 // ─── Area map (from List of Electives PDF) ────────────────────────────────────
 export const AREA_MAP: Record<string, string> = {
@@ -162,37 +159,6 @@ export function detailKey(code: string, sheetTab: string, layout: 'division' | '
   return { primary: k, fallback: k }
 }
 
-function getOAuth2Client() {
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  )
-  oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-  })
-  return oauth2Client
-}
-
-export async function fetchBothSheetTabs(): Promise<RawSheetData> {
-  const auth = getOAuth2Client()
-  const sheets = google.sheets({ version: 'v4', auth })
-
-  const response = await sheets.spreadsheets.values.batchGet({
-    spreadsheetId: SHEET_ID,
-    ranges: [`'${SCHEDULE_TAB}'`, `'${DETAILS_TAB}'`],
-    valueRenderOption: 'FORMATTED_VALUE',
-  })
-
-  const [sheet1Response, sheet2Response] = response.data.valueRanges ?? []
-
-  return {
-    sheet1: (sheet1Response?.values as string[][]) ?? [],
-    sheet2: (sheet2Response?.values as string[][]) ?? [],
-    fetched_at: new Date().toISOString(),
-  }
-}
-
 // ─── Cell formatting helpers (cell-color change detection) ────────────────────
 
 // Convert Google's {red,green,blue} floats (0–1) to a hex string. Near-white → null.
@@ -238,7 +204,7 @@ function pickTab(titles: string[], explicit: string | undefined, re: RegExp, fal
 // Fetch a source's schedule + details tabs WITH per-cell formatting (bg colour + strikethrough)
 // and the schedule tab's merge ranges (to span grouped events across dates).
 export async function fetchBothSheetTabsWithFormatting(source: SheetSource): Promise<RawSheetData> {
-  const auth = getOAuth2Client()
+  const auth = await getSheetsOAuthClient()
   const sheets = google.sheets({ version: 'v4', auth })
 
   // Resolve tab names (auto-detect by default).
@@ -283,20 +249,6 @@ export async function fetchBothSheetTabsWithFormatting(source: SheetSource): Pro
   }
 
   return { sheet1, sheet2, sheet1_format, merges, layout: source.layout, year: source.year, fetched_at: new Date().toISOString() }
-}
-
-export async function fetchSheetTabNames(): Promise<string[]> {
-  const auth = getOAuth2Client()
-  const sheets = google.sheets({ version: 'v4', auth })
-
-  const response = await sheets.spreadsheets.get({
-    spreadsheetId: SHEET_ID,
-    fields: 'sheets.properties.title',
-  })
-
-  return (
-    response.data.sheets?.map((s) => s.properties?.title ?? '') ?? []
-  )
 }
 
 export interface ParseOpts {

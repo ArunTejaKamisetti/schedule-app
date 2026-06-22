@@ -12,6 +12,11 @@ import { useSession } from '@/components/session-provider'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
+// Web push is OPTIONAL — if no VAPID public key is configured at build, the push UI is hidden and
+// subscribing is skipped (NEXT_PUBLIC_* is inlined at build, so this is a static check).
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+const PUSH_CONFIGURED = Boolean(VAPID_PUBLIC_KEY) && VAPID_PUBLIC_KEY !== 'your_vapid_public_key'
+
 type PrefKey = 'notify_cancelled' | 'notify_rescheduled' | 'notify_room' | 'notify_daily_summary'
 const PREF_LABELS: { key: PrefKey; label: string }[] = [
   { key: 'notify_cancelled', label: 'Class cancelled' },
@@ -102,6 +107,7 @@ export default function SettingsPage() {
   }, [])
 
   async function togglePush() {
+    if (!PUSH_CONFIGURED) return
     if (!('serviceWorker' in navigator)) return
     const reg = await navigator.serviceWorker.ready
     if (pushEnabled) {
@@ -118,7 +124,7 @@ export default function SettingsPage() {
       if (permission !== 'granted') { toast.error('Notification permission denied'); return }
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!) as BufferSource,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY!) as BufferSource,
       })
       await fetch('/api/push/subscribe', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -196,7 +202,12 @@ export default function SettingsPage() {
 
         {/* Notifications */}
         <Section title="Notifications">
-          {pushSupported ? (
+          {!PUSH_CONFIGURED ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted rounded-xl p-4">
+              <Info size={16} />
+              <p>Push notifications aren&apos;t configured on this deployment. Class reminders and the calendar feed still work.</p>
+            </div>
+          ) : pushSupported ? (
             <button
               onClick={togglePush}
               className={cn(

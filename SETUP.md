@@ -25,40 +25,43 @@ Copy the public and private keys.
 
 ## 4. Fill in .env.local
 
+Only these 7 are required (see `.env.example`):
+
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-...
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/admin/oauth/callback
-
-GOOGLE_SHEET_ID=13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ
-GOOGLE_REFRESH_TOKEN=  ← fill after step 5
+ALLOWED_EMAIL_DOMAIN=iimk.ac.in
+ADMIN_EMAILS=you@iimk.ac.in
 
 CRON_SECRET=some-random-secret-string-here
-
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=BF...
-VAPID_PRIVATE_KEY=...
-VAPID_EMAIL=mailto:your@email.com
 
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-## 5. Get the Google Refresh Token (one-time)
+VAPID (push) is optional — add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL`
+to enable it, or leave them out (push toggle hides, everything else works).
 
-1. Run the app locally: `npm run dev`
-2. Open http://localhost:3000/api/admin/oauth
-3. Sign in with your **college Google account** (the one that can see the sheet)
-4. Copy the refresh token shown on the success page
-5. Paste it into `.env.local` as `GOOGLE_REFRESH_TOKEN`
+**Google is NOT set via env.** The app's Google OAuth client lives in the `google_integration` DB row
+(migration 019) and in Supabase Auth → Google provider; the sheet refresh token is captured at the
+admin's one-time sign-in consent. For local dev you *may* drop `GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI`
+into `.env.local` as a fallback (see the commented block in `.env.example`).
 
-## 6. Verify sheet access
+## 5. Configure Google + authorize sheets (one-time)
 
-Open http://localhost:3000/admin/preview — you should see your sheet columns and sample rows.
+1. In Google Cloud, create a Web OAuth client; redirect `http://localhost:3000/api/admin/oauth/callback` (and the Vercel URL for prod).
+2. Put its `client_id`/`client_secret` into the `google_integration` row (Supabase → SQL Editor), e.g.
+   `INSERT INTO google_integration (id, client_id, client_secret) VALUES (true, '…', '…') ON CONFLICT (id) DO UPDATE SET client_id = EXCLUDED.client_id, client_secret = EXCLUDED.client_secret;`
+   — and the same client into Supabase Auth → Google provider (for login).
+3. Run the app (`npm run dev`), sign in with your **college Google account** (the one that can see the sheets). The one-time "read my sheets" consent fires automatically; the refresh token is stored in the DB.
 
-If column names are different from expected, the parser auto-detects them. Check the "parsed_sample" output — if `course_name`, `start_time`, etc. are blank, update the column aliases in `lib/sheets.ts` → `findCol()`.
+## 6. Paste the term's sheet link + verify
+
+Open `/admin/schedule`, paste the Google Sheet link for each source, then open `/admin/preview` —
+you should see the sheet columns and sample rows.
+
+If column names differ from expected, the parser auto-detects them. Check the "parsed_sample" output — if `course_name`, `start_time`, etc. are blank, update the column aliases in `lib/sheets.ts` → `findCol()`.
 
 ## 7. Run first sync
 
@@ -76,14 +79,10 @@ npm install -g vercel
 vercel --prod
 ```
 
-Add all env vars in Vercel dashboard (Settings → Environment Variables).
-
-**Update GOOGLE_REDIRECT_URI** to use your Vercel URL:
-```
-https://YOUR_APP.vercel.app/api/admin/oauth/callback
-```
-
-Re-run the OAuth flow on the production URL to get a production refresh token.
+Add the **7 required** env vars in Vercel dashboard (Settings → Environment Variables) — no Google
+vars. In the prod Supabase, set the `google_integration` row's `redirect_uri` (or rely on the
+`${NEXT_PUBLIC_APP_URL}/api/admin/oauth/callback` default) and add that redirect to the Google OAuth
+client. Then sign in once as an admin on the production URL to capture the prod sheet token.
 
 ## 9. Sync trigger — ONE poll (simple + reliable)
 

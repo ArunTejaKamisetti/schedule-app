@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { SHEET_SOURCES } from '@/lib/sheets-config'
 import { createServiceClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/admin'
 import { syncOneSource } from '@/lib/sync-core'
+import { resolveSheetSources } from '@/lib/schedule-sources'
 
 export const maxDuration = 60
 
@@ -15,9 +15,10 @@ export async function POST(req: NextRequest) {
   const supabase = createServiceClient()
   const results: Record<string, unknown>[] = []
 
-  // Each configured sheet (year/section) syncs independently and scoped by source_key, so a
-  // broken 1st-year sheet can never break the 2nd-year sync.
-  for (const source of SHEET_SOURCES) {
+  // Resolve each source's sheet id from the DB (admin-pasted link), then sync. Each sheet syncs
+  // independently and scoped by source_key, so a broken 1st-year sheet can never break 2nd-year.
+  const sources = await resolveSheetSources(supabase)
+  for (const source of sources) {
     if (!source.sheetId) continue
     try {
       results.push({ key: source.key, ...(await syncOneSource(supabase, source)) })

@@ -2,11 +2,14 @@
 
 New `app/(admin)/admin/**` route group, gated to `role = 'admin'` in `middleware.ts`. Consolidates everything the developer does manually today.
 
-## Schedule source — keep Google Sheets
+## Schedule source — paste a Google Sheet link per term
 
-- The sheet is owned by the **institutional admin Google account**. Admin pastes/stores the Sheet/Drive link, can **preview** (port `app/admin/preview` behind admin auth), and **trigger sync** from the UI (calls existing `/api/sync`, now admin-auth-protected in addition to `CRON_SECRET` for cron).
-- Remove the public, unauthenticated `/admin/preview` and `/api/admin/oauth` exposure; **stop rendering the OAuth refresh token into HTML** — store it server-side only.
-- A non-developer admin can update the schedule by editing the Google Sheet (no code change), which is why the Sheets pipeline stays.
+**The schedule sheet is a brand-new sheet EVERY term (Y1 and Y2).** So the source id is NOT in env/code — the admin pastes each term's link and the app reads it via the admin's own Google login:
+
+- **One-time per admin:** sign in with Google → a single "allow read my sheets" consent (auto-triggered at sign-in for admins who haven't done it). The refresh token is stored **server-side in `google_integration`** (migration 019) — never in env, never rendered to HTML/logs.
+- **Per term:** Admin → Schedule → paste the new Google Sheet link for each source → **Sync now** (calls `/api/sync`, admin-auth or `CRON_SECRET`). The pasted id is stored in `schedule_sources`; `resolveSheetSources` merges it onto the registry. Tab names are auto-detected, so a renamed term tab needs no change.
+- The app's Google OAuth client (`client_id/secret/redirect`) lives once in the `google_integration` row (seeded at handover) — **no Google vars in Vercel.** The sheet must be viewable by the authorizing admin's Google account.
+- `.xlsx` upload remains as an offline fallback. `/api/admin/oauth` + `/admin/preview` are admin-gated.
 
 ## Roster upload (auto-fills schedules)
 

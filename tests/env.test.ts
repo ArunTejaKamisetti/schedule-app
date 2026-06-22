@@ -20,8 +20,16 @@ describe('validateEnv (missing-var detection)', () => {
   it('treats a blank / whitespace-only value as missing', () => {
     const env = fullEnv()
     env.CRON_SECRET = ''
-    env.GOOGLE_SHEET_ID = '   '
-    expect(validateEnv(env).sort()).toEqual(['CRON_SECRET', 'GOOGLE_SHEET_ID'])
+    env.ADMIN_EMAILS = '   '
+    expect(validateEnv(env).sort()).toEqual(['ADMIN_EMAILS', 'CRON_SECRET'])
+  })
+
+  it('does NOT require Google or VAPID vars (configured at runtime / optional)', () => {
+    expect(REQUIRED_SERVER_ENV).not.toContain('GOOGLE_SHEET_ID')
+    expect(REQUIRED_SERVER_ENV).not.toContain('GOOGLE_REFRESH_TOKEN')
+    expect(REQUIRED_SERVER_ENV).not.toContain('GOOGLE_CLIENT_ID')
+    expect(REQUIRED_SERVER_ENV).not.toContain('VAPID_PRIVATE_KEY')
+    expect(REQUIRED_SERVER_ENV).not.toContain('NEXT_PUBLIC_VAPID_PUBLIC_KEY')
   })
 
   it('reports every missing var, not just the first', () => {
@@ -36,9 +44,9 @@ describe('assertServerEnv (fail-fast)', () => {
 
   it('throws an aggregated message naming the missing vars', () => {
     const env = fullEnv()
-    delete env.GOOGLE_CLIENT_ID
-    delete env.VAPID_PRIVATE_KEY
-    expect(() => assertServerEnv(env)).toThrow(/GOOGLE_CLIENT_ID/)
-    expect(() => assertServerEnv(env)).toThrow(/VAPID_PRIVATE_KEY/)
+    delete env.SUPABASE_SERVICE_ROLE_KEY
+    delete env.CRON_SECRET
+    expect(() => assertServerEnv(env)).toThrow(/SUPABASE_SERVICE_ROLE_KEY/)
+    expect(() => assertServerEnv(env)).toThrow(/CRON_SECRET/)
   })
 })

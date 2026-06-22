@@ -9,7 +9,7 @@ export async function GET() {
   const session = await getAuthedSession()
   if (!session) return unauthorized()
 
-  const client = makeCalendarOAuthClient()
+  const client = await makeCalendarOAuthClient()
   const url = client.generateAuthUrl({
     access_type: 'offline',
     scope: GCAL_SCOPES,

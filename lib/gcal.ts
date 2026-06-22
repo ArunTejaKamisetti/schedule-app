@@ -1,6 +1,7 @@
 import { google, calendar_v3 } from 'googleapis'
 import { createServiceClient } from './supabase/server'
 import { getUserSessions } from './enrollment'
+import { getGoogleConfig } from './google-auth'
 import type { Course } from './types'
 
 export const GCAL_SCOPES = ['https://www.googleapis.com/auth/calendar.events']
@@ -12,12 +13,15 @@ export function getCalendarRedirectUri(): string {
   return `${base}/api/calendar/google/callback`
 }
 
-export function makeCalendarOAuthClient() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    getCalendarRedirectUri()
-  )
+// Reuses the app's one-time Google client (from the `google_integration` DB row, env as dev
+// fallback) so per-user Calendar connect needs no Google vars in env. Throws a clear error if the
+// client isn't configured — callers surface that as "Calendar isn't available" rather than a 500.
+export async function makeCalendarOAuthClient() {
+  const cfg = await getGoogleConfig()
+  if (!cfg.clientId || !cfg.clientSecret) {
+    throw new Error('Google Calendar is not available — the app\'s Google client is not configured.')
+  }
+  return new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, getCalendarRedirectUri())
 }
 
 // Build an OAuth client authenticated for a given user, persisting refreshed tokens.
@@ -31,7 +35,7 @@ async function getUserCalendarClient(userId: string) {
 
   if (!tok || !tok.refresh_token) return null
 
-  const client = makeCalendarOAuthClient()
+  const client = await makeCalendarOAuthClient()
   client.setCredentials({
     refresh_token: tok.refresh_token,
     access_token: tok.access_token ?? undefined,

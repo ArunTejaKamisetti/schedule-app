@@ -47,17 +47,17 @@
 
 Done (the code-side of Phase 4; rotation itself is a manual ops step at handover):
 - **Fail-fast env validation.** `lib/env.ts` (`REQUIRED_SERVER_ENV`, `validateEnv`, `assertServerEnv`) lists every required var and is wired through `instrumentation.ts`'s `register()` (Node runtime only) so a misconfigured deploy throws one aggregated "Missing required environment variable(s): …" at server boot instead of a confusing mid-request null. Unit-tested in `tests/env.test.ts`.
-- **No tokens rendered into HTML.** `app/api/admin/oauth/callback/route.ts` no longer writes `GOOGLE_REFRESH_TOKEN` into the page — it logs it to the **server log** only (admin copies it from Vercel/terminal logs into the env var, then clears the line). Closes [05 §8](05-security-hardening.md).
-- `.env.example` carries all 15 required vars plus optional `RETENTION_DAYS`.
+- **No tokens in HTML, env, or logs.** `app/api/admin/oauth/callback/route.ts` stores the sheet refresh token **server-side in the DB** (`google_integration`, migration 019) and redirects — it is never rendered, logged, or pasted into env. Closes [05 §8](05-security-hardening.md).
+- **Google moved out of env.** Sheet reading uses the admin's Google login (one-time consent → token in DB) + an admin-pasted sheet link per term (`schedule_sources`); the OAuth client lives in the `google_integration` row. `lib/env.ts` now requires only **7** vars (Supabase ×3, `ALLOWED_EMAIL_DOMAIN`, `ADMIN_EMAILS`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`). **VAPID is optional** (push disabled without it). See [03](03-admin-dashboard.md).
 
 ## Rotation runbook (manual — run at handover to the institutional account)
 
 These are console operations the operator (Arun → college admin) performs; the app can't do them.
 
 1. **Supabase (institutional project):** create the project under the college account. Settings → API → copy the new `URL`, `anon`, `service_role`. Settings → API → *rotate* the service-role/JWT secret. Put the new values in Vercel env (prod) only.
-2. **Google Cloud (institutional account):** new OAuth client (web) → set `GOOGLE_CLIENT_ID`/`SECRET`/`REDIRECT_URI`; delete the old personal client. Re-run the in-app connect flow → grab `GOOGLE_REFRESH_TOKEN` from the **server log** (not the page) → store in Vercel env.
-3. **Google Sheet:** move/copy the schedule sheet to the institutional account; set `GOOGLE_SHEET_ID`.
-4. **VAPID:** `npx web-push generate-vapid-keys` → set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL`.
+2. **Google Cloud (institutional account):** new OAuth client (web), redirect `${NEXT_PUBLIC_APP_URL}/api/admin/oauth/callback`; delete the old personal client. Put its `client_id`/`client_secret` into the **`google_integration` DB row** (SQL Editor) AND into **Supabase Auth → Google provider** for login. (No Google vars in Vercel.)
+3. **Authorize sheets (in-app, once):** sign in as an `ADMIN_EMAILS` Google account → accept the one-time "read my sheets" consent → the refresh token is stored in `google_integration` automatically. Then Admin → Schedule → paste each term's sheet link (the sheet must be viewable by that admin account).
+4. **VAPID (optional):** `npx web-push generate-vapid-keys` → set `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_EMAIL` to enable push; skip to leave push off.
 5. **CRON_SECRET:** generate a fresh random string; set in Vercel env and in the cron scheduler's bearer header.
 6. **Delete stale old-project keys** from `.env.local` and anywhere else; confirm `.env*` is git-ignored and no secret is committed in history.
 7. **Verify:** redeploy; `instrumentation.ts` will fail the boot if any var is missing. Smoke-test sign-in + a sync.

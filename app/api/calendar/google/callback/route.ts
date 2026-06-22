@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   // 1) Exchange the code for tokens.
   let tokens
   try {
-    const client = makeCalendarOAuthClient()
+    const client = await makeCalendarOAuthClient()
     tokens = (await client.getToken(code)).tokens
   } catch (e) {
     return fail(appUrl, `token exchange failed: ${e instanceof Error ? e.message : 'unknown'}`)

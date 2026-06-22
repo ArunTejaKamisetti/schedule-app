@@ -1,25 +1,25 @@
 import { NextResponse } from 'next/server'
-import { google } from 'googleapis'
 import { requireAdmin } from '@/lib/admin'
+import { getOAuthClient } from '@/lib/google-auth'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets.readonly',
 ]
 
-function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  )
-}
-
-// Step 1: Redirect to Google consent (admin only — this provisions the institutional sheet token).
+// Step 1: Redirect an admin to Google consent. This is the ONE-TIME authorization that captures the
+// institutional sheet-read token (stored in the DB by the callback) — no token is ever pasted into
+// env. Offline access + forced consent so Google returns a refresh_token.
 export async function GET() {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 })
   }
-  const oauth2Client = getOAuth2Client()
+  let oauth2Client
+  try {
+    oauth2Client = await getOAuthClient()
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: SCOPES,
