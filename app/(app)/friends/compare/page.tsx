@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect, useMemo, Suspense } from 'react'
+import useSWR from 'swr'
 import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, MapPin, CalendarDays } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
+import { useCommonEvents, useFriends } from '@/lib/hooks'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CANONICAL_SLOTS, isBusyAt } from '@/lib/free-time'
 import type { Course } from '@/lib/types'
@@ -21,29 +23,23 @@ function CompareContent() {
   const { userId, user } = useSession()
   const params = useSearchParams()
   const friendId = params.get('friendId')
-  const [mine, setMine] = useState<Course[]>([])
-  const [theirs, setTheirs] = useState<Course[]>([])
-  const [common, setCommon] = useState<Course[]>([])
-  const [friendName, setFriendName] = useState('Friend')
-  const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState('')
 
-  useEffect(() => {
-    if (!userId || !friendId) return
-    Promise.all([
-      fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses/user?userId=${friendId}`).then((r) => r.json()),
-      fetch(`/api/friends?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()),
-    ]).then(([m, t, friends, cmn]: [{ courses: Course }[], { courses: Course }[], { friend_id: string; friend: { display_name: string } }[], Course[]]) => {
-      setMine((m ?? []).map((d) => d.courses).filter(Boolean))
-      setTheirs((t ?? []).map((d) => d.courses).filter(Boolean))
-      setCommon(Array.isArray(cmn) ? cmn : [])
-      const f = friends?.find((fr) => fr.friend_id === friendId)
-      if (f?.friend?.display_name) setFriendName(f.friend.display_name)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [userId, friendId, user?.year])
+  // Compare against a friend via the AUTHORIZED endpoint: it resolves identity from the session
+  // cookie, verifies friendId is an accepted friend, and returns BOTH schedules. The old code
+  // fetched /api/courses/user?userId=<friendId>, but that route ignores the param and resolves the
+  // signed-in user — so the friend column wrongly showed your own schedule.
+  const year = user?.year === 1 ? 1 : 2
+  const { events: common } = useCommonEvents(userId ? year : null)
+  const { friends } = useFriends(userId)
+  const { data: cmp, isLoading } = useSWR<{ myCourses: Course[]; friendCourses: Course[] }>(
+    userId && friendId ? `/api/friends/compare?friendId=${friendId}` : null
+  )
+  const mine = useMemo<Course[]>(() => cmp?.myCourses ?? [], [cmp])
+  const theirs = useMemo<Course[]>(() => cmp?.friendCourses ?? [], [cmp])
+  const friendName =
+    friends.find((fr) => fr.friend_id === friendId)?.friend?.display_name ?? 'Friend'
+  const loading = !userId || !friendId || (isLoading && !cmp)
 
   // Include common events (mid/end-term exams) so the strip covers the whole term to 31 Aug —
   // both friends "share" those days. Enrolled classes alone stop in mid-August.
