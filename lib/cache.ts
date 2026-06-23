@@ -15,6 +15,16 @@
 // 5 min fresh on the edge, then serve stale for up to 30 min while revalidating in the background.
 export const SHARED_CACHE = 'public, s-maxage=300, stale-while-revalidate=1800'
 
+// For per-USER read-mostly routes (a user's picks, their unread alerts, attendance summary). The
+// URL carries the userId, so Vercel caches a separate edge entry per user — repeated opens of the
+// PWA in a short window are served from the edge instead of re-invoking the function. The TTL is
+// short and mutations update the client cache optimistically, so stale-on-hard-reload is bounded
+// to a minute and never masks an action the user just took in the current session.
+export const SHORT_CACHE = 'public, s-maxage=60, stale-while-revalidate=300'
+
+// One year, immutable — for assets that never change (the generated PWA icons).
+export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
+
 // Convenience for `NextResponse.json(data, { headers: cacheHeaders() })`.
 export function cacheHeaders(value: string = SHARED_CACHE): Record<string, string> {
   return { 'Cache-Control': value }

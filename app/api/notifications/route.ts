@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { cacheHeaders, SHORT_CACHE } from '@/lib/cache'
 
-// GET /api/notifications?userId=xxx
+// GET /api/notifications?userId=xxx  — edge-cached per user (short TTL; new alerts also arrive via
+// web push, so a ~minute of edge staleness on the badge is fine).
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('userId')
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
@@ -15,7 +17,7 @@ export async function GET(req: NextRequest) {
     .limit(50)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return NextResponse.json(data, { headers: cacheHeaders(SHORT_CACHE) })
 }
 
 // PATCH /api/notifications  → mark as read

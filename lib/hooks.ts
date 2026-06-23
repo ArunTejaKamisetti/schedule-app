@@ -139,10 +139,18 @@ export function useFriends(userId?: string | null) {
 }
 
 // Re-exported so SwrProvider and any ad-hoc useSWR calls share the same defaults shape.
+//
+// Deliberately aggressive: each key is fetched once and then reused for the whole session. We do
+// NOT auto-revalidate on focus, reconnect, or remount (`revalidateIfStale: false`) — those were
+// firing extra requests on every tab switch and every flaky-mobile reconnect. Freshness instead
+// comes from (a) optimistic `mutate` on every write, and (b) a fresh fetch on the next cold app
+// load. Server-driven changes (sheet sync) also push a web notification, and the shared course
+// routes are edge-cached, so the rare revalidation that does happen is cheap.
 export const SWR_DEFAULTS: SWRConfiguration = {
   fetcher,
   revalidateOnFocus: false,
-  revalidateOnReconnect: true,
-  dedupingInterval: 60_000,
+  revalidateOnReconnect: false,
+  revalidateIfStale: false,
+  dedupingInterval: 120_000,
   keepPreviousData: true,
 }

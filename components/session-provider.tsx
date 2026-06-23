@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { getOrCreateSessionId, setSessionCode, applyRecoveryTokenFromUrl } from '@/lib/session'
+import { getOrCreateSessionId, setSessionCode, applyRecoveryTokenFromUrl, getCachedUser, setCachedUser } from '@/lib/session'
 import type { User } from '@/lib/types'
 
 interface SessionContextValue {
@@ -45,19 +45,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const id = getOrCreateSessionId()
     setUserId(id)
 
-    // Register/load user
-    fetch('/api/user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: id }),
-    })
-      .then((r) => r.json())
-      .then((u: User) => {
-        setUser(u)
-        setShareCodeState(u.share_code)
-        setSessionCode(u.share_code)
+    // Render instantly from the locally cached user record, and only hit /api/user when there's no
+    // fresh cache — this used to POST on every single app open just to read the same record back.
+    const cached = getCachedUser(id)
+    if (cached) {
+      setUser(cached)
+      setShareCodeState(cached.share_code)
+      setSessionCode(cached.share_code)
+    } else {
+      fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: id }),
       })
-      .catch(console.error)
+        .then((r) => r.json())
+        .then((u: User) => {
+          setUser(u)
+          setShareCodeState(u.share_code)
+          setSessionCode(u.share_code)
+          setCachedUser(u)
+        })
+        .catch(console.error)
+    }
 
     // Register service worker
     if ('serviceWorker' in navigator) {

@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
 import { useCatalog, useUserSessions, useAttendanceSummary } from '@/lib/hooks'
+import { clearCachedUser } from '@/lib/session'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -154,6 +155,8 @@ export default function CoursesPage() {
         })
         // Refresh the shared sessions cache so Home/Schedule reflect the pick without a full reload.
         mutateSessions()
+        // Picking can flip the account to 2nd-year server-side, so drop the cached user record.
+        clearCachedUser()
       } catch {
         toast.error('Could not update. Try again.')
         setSelectedCodes((prev) => {

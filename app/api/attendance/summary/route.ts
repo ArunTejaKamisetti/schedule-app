@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getUserSessions } from '@/lib/enrollment'
 import { summarizeAttendance, istNow } from '@/lib/attendance'
+import { cacheHeaders, SHORT_CACHE } from '@/lib/cache'
 
 // Per-picked-course attendance stats + meta.
 // GET /api/attendance/summary?userId=…
@@ -19,5 +20,8 @@ export async function GET(req: NextRequest) {
   for (const a of attRes.data ?? []) attByCourse.set(a.course_id, a.status)
 
   const { todayISO, nowHM } = istNow()
-  return NextResponse.json(summarizeAttendance(sessions, attByCourse, todayISO, nowHM))
+  return NextResponse.json(
+    summarizeAttendance(sessions, attByCourse, todayISO, nowHM),
+    { headers: cacheHeaders(SHORT_CACHE) }
+  )
 }
