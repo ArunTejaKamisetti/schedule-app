@@ -31,6 +31,14 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
   const diff = diffSheetData(previousSnapshot, newData)
   const syncStartedAt = new Date().toISOString()
 
+  // Fast no-op path: once we have a baseline, most runs (especially at a 30-min cadence) find the
+  // sheet unchanged. Skip the heavy tail — writing a fresh full raw_snapshot to sync_log, pruning
+  // logs, and the notify/calendar work — and just return. The previous snapshot stays the baseline
+  // for the next diff. Re-uploading an identical .xlsx is likewise a cheap no-op.
+  if (previousSnapshot && diff.upserts.length === 0 && diff.removed.length === 0) {
+    return { added: 0, modified: 0, removed: 0, changes: 0, skipped: true }
+  }
+
   if (diff.upserts.length > 0) {
     const rows = diff.upserts.map((c) => ({
       course_code: c.course_code,

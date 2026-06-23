@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
+import { useUserSessions, useAttendanceSummary } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -57,8 +58,12 @@ export default function CoursesPage() {
   const [picking, setPicking] = useState(false) // first-time picker, stays open until "Done"
   const [userLoaded, setUserLoaded] = useState(false)
   const [decided, setDecided] = useState(false)
-  const [summary, setSummary] = useState<CourseStat[]>([])
   const [, startTransition] = useTransition()
+
+  // Shared, deduped per-user data (see lib/hooks.ts). Catalog stays a plain fetch below — it's the
+  // shared, edge-cached route and varies by admin/year.
+  const { codes: serverCodes, rows: sessionRows, mutate: mutateSessions } = useUserSessions(userId)
+  const { summary } = useAttendanceSummary(userId, !editing)
 
   useEffect(() => {
     // Catalog = one representative row per course (complete, no 1000-row cap). Students always see
@@ -81,16 +86,12 @@ export default function CoursesPage() {
     setYearTabDecided(true)
   }, [yearTabDecided, user])
 
+  // Seed the editable selection ONCE from the server (optimistic toggles below own it afterward).
   useEffect(() => {
-    if (!userId) return
-    fetch(`/api/courses/user?userId=${userId}`)
-      .then((r) => r.json())
-      .then((data: { courses: Course }[]) => {
-        setSelectedCodes(new Set(data.map((d) => d.courses?.course_code).filter(Boolean)))
-        setUserLoaded(true)
-      })
-      .catch(() => setUserLoaded(true))
-  }, [userId])
+    if (sessionRows === undefined || userLoaded) return
+    setSelectedCodes(new Set(serverCodes))
+    setUserLoaded(true)
+  }, [sessionRows, serverCodes, userLoaded])
 
   // Decide the initial view ONCE, after the user's existing picks are known: a brand-new
   // user (no picks) opens straight into the picker and stays there until they tap "Done"
@@ -100,15 +101,6 @@ export default function CoursesPage() {
     setPicking(!ROSTER_MANAGED && selectedCodes.size === 0)
     setDecided(true)
   }, [decided, loading, userLoaded, selectedCodes])
-
-  // Attendance stats for the static "My Courses" view (refreshed when leaving edit mode).
-  useEffect(() => {
-    if (!userId || editing) return
-    fetch(`/api/attendance/summary?userId=${userId}`)
-      .then((r) => r.json())
-      .then((d: CourseStat[]) => setSummary(Array.isArray(d) ? d : []))
-      .catch(() => {})
-  }, [userId, editing])
 
   // One card per unique course (GT-A, GT-B are distinct courses).
   const courseGroups = useMemo<CourseGroup[]>(() => {
@@ -182,6 +174,7 @@ export default function CoursesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, courseCode: group.code, action: select ? 'add' : 'remove' }),
         })
+        mutateSessions()
       } catch {
         toast.error('Could not update. Try again.')
         setSelectedCodes((prev) => {

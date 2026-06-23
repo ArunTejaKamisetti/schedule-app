@@ -5,6 +5,7 @@ import { format, addDays, parseISO } from 'date-fns'
 import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, Bell, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
+import { useUserSessions, useCommonEvents, useAttendance, useNotes } from '@/lib/hooks'
 import { Skeleton } from '@/components/ui/skeleton'
 import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
@@ -76,25 +77,14 @@ const TERM_DATES: string[] = (() => {
 
 export default function TodayPage() {
   const { userId, user, unreadCount } = useSession()
-  const [mySessions, setMySessions] = useState<Course[]>([])
-  const [commonEvents, setCommonEvents] = useState<Course[]>([])
-  const [attendance, setAttendance] = useState<Record<string, string>>({})
-  const [noteMap, setNoteMap] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
+  const year = user?.year === 1 ? 1 : 2
+  // Shared, deduped data — no per-mount/per-focus refetch (see lib/hooks.ts).
+  const { courses: mySessions, isLoading: loadingMine } = useUserSessions(userId)
+  const { events: commonEvents } = useCommonEvents(userId ? year : null)
+  const { map: attendance, setStatus: markAttendance } = useAttendance(userId)
+  const { map: noteMap } = useNotes(userId)
+  const loading = !userId || loadingMine
   const railRef = useRef<HTMLDivElement>(null)
-
-  async function markAttendance(courseId: string, status: 'present' | 'absent' | null) {
-    setAttendance((prev) => {
-      const next = { ...prev }
-      if (status === null) delete next[courseId]
-      else next[courseId] = status
-      return next
-    })
-    await fetch('/api/attendance', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, courseId, status }),
-    }).catch(() => {})
-  }
 
   const todayISO = localISO(new Date())
   const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
@@ -120,26 +110,6 @@ export default function TodayPage() {
   useEffect(() => { scrollToDate(initialDate, false) }, [initialDate])
 
   function jumpToday() { setSelectedDate(initialDate); scrollToDate(initialDate, true) }
-
-  useEffect(() => {
-    if (!userId) return
-    Promise.all([
-      fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()),
-      fetch(`/api/attendance?userId=${userId}`).then((r) => r.json()),
-      fetch(`/api/notes?userId=${userId}`).then((r) => r.json()),
-    ])
-      .then(([userRows, common, att, notes]: [{ courses: Course }[], Course[], { course_id: string; status: string }[], { course_id: string; body: string }[]]) => {
-        setMySessions((userRows ?? []).map((d) => d.courses).filter(Boolean))
-        setCommonEvents(Array.isArray(common) ? common : [])
-        const map: Record<string, string> = {}
-        for (const a of att ?? []) map[a.course_id] = a.status
-        setAttendance(map)
-        setNoteMap(Object.fromEntries((notes ?? []).map((n) => [n.course_id, n.body])))
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [userId, user?.year])
 
   const allForDate = useMemo(() => {
     const merged = [...mySessions, ...commonEvents].filter((c) => c.session_date === selectedDate)

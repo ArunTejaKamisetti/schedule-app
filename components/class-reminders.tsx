@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useSession } from './session-provider'
+import { useUserSessions, useCommonEvents } from '@/lib/hooks'
 import { reminderText, toMinutes } from '@/lib/reminders'
-import type { Course } from '@/lib/types'
 
 // Per-user class reminders WITHOUT any server cron: while the app is open, the browser
 // schedules a local notification ~14 min before each of today's classes. Opt-out is a simple
@@ -27,10 +27,27 @@ function safeParse(s: string | null): string[] {
 export function ClassReminders() {
   const { userId, user } = useSession()
 
+  // Whether reminders are on for this device (notifications granted + not opted out). Computed once
+  // on the client; gates the data hooks below so non-notification users add ZERO fetches.
+  const [enabled, setEnabled] = useState(false)
   useEffect(() => {
-    if (!userId || typeof window === 'undefined') return
-    if (localStorage.getItem(REMINDERS_OFF_KEY) === '1') return
-    if (!('Notification' in window) || Notification.permission !== 'granted') return
+    if (typeof window === 'undefined') return
+    setEnabled(
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      localStorage.getItem(REMINDERS_OFF_KEY) !== '1'
+    )
+  }, [])
+
+  // Pull today's classes from the SHARED SWR cache. When Today (or any course page) is open these
+  // keys are already loaded, so this adds no extra request — and crucially it no longer re-fetches
+  // on every window focus/visibilitychange, which was the main driver of redundant API calls.
+  const year = user?.year === 1 ? 1 : 2
+  const { courses: mine } = useUserSessions(enabled ? userId : null)
+  const { events: common } = useCommonEvents(enabled ? year : null)
+
+  useEffect(() => {
+    if (!enabled || !userId || typeof window === 'undefined') return
 
     let timers: ReturnType<typeof setTimeout>[] = []
     let active = true
@@ -38,20 +55,13 @@ export function ClassReminders() {
     async function schedule() {
       timers.forEach(clearTimeout)
       timers = []
-      const [mineRes, commonRes] = await Promise.all([
-        fetch(`/api/courses/user?userId=${userId}`).then((r) => r.json()).catch(() => []),
-        fetch(`/api/courses?common=1&year=${user?.year === 1 ? 1 : 2}`).then((r) => r.json()).catch(() => []),
-      ])
-      if (!active) return
-
-      const mine: Course[] = Array.isArray(mineRes) ? mineRes.map((d: { courses: Course }) => d.courses).filter(Boolean) : []
-      const common: Course[] = Array.isArray(commonRes) ? commonRes : []
       const { todayISO, nowMin } = istNowParts()
       const todays = [...mine, ...common].filter((c) => c.session_date === todayISO)
 
       const firedKey = `reminded_${todayISO}`
       const fired = new Set<string>(safeParse(localStorage.getItem(firedKey)))
       const reg = await navigator.serviceWorker?.ready.catch(() => null)
+      if (!active) return
 
       for (const c of todays) {
         if (c.is_cancelled || !c.start_time) continue
@@ -75,7 +85,7 @@ export function ClassReminders() {
     }
 
     schedule()
-    // Re-arm when the app regains focus (new day, picked/dropped a course, sheet changed).
+    // Re-arm on focus (new day, etc.) from the already-loaded data — no network call here anymore.
     const onFocus = () => { if (active) schedule() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
@@ -85,7 +95,7 @@ export function ClassReminders() {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onFocus)
     }
-  }, [userId, user?.year])
+  }, [enabled, userId, mine, common])
 
   return null
 }
