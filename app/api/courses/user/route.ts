@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthedSession, unauthorized } from '@/lib/api-auth'
 import { getUserSessions } from '@/lib/enrollment'
-import { syncGoogleCalendarForUser } from '@/lib/gcal'
+// NOTE: `@/lib/gcal` (which pulls in the very large `googleapis` package) is intentionally NOT
+// imported at the top. This is the most-invoked route, and a top-level import would load googleapis
+// on every cold start — even for GET, which never touches Google Calendar. It's lazy-imported
+// inside POST instead, so GET cold starts stay light.
 
 // GET /api/courses/user  → every current session of the signed-in user's picked courses.
 // Resolved by course CODE (not frozen session ids), so classes added/moved/updated in the
@@ -39,7 +42,9 @@ export async function POST(req: NextRequest) {
 
   // Keep the user's Google Calendar in step with just this course (insert its events on add,
   // remove them on unpick). No-op and instant for users who haven't connected a calendar.
-  // The UI updates optimistically, so this runs in the background of the request.
+  // The UI updates optimistically, so this runs in the background of the request. Lazy-imported
+  // so the heavy googleapis dependency only loads on this write path, never on GET.
+  const { syncGoogleCalendarForUser } = await import('@/lib/gcal')
   await syncGoogleCalendarForUser(userId, new Set([courseCode])).catch(() => {})
 
   return NextResponse.json({ ok: true })
