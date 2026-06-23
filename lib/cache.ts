@@ -12,8 +12,12 @@
 // deliberately NOT given a public cache; it is deduped on the client by SWR instead, so a fresh
 // pick/mark is never masked by a stale edge response.
 
-// 5 min fresh on the edge, then serve stale for up to 30 min while revalidating in the background.
-export const SHARED_CACHE = 'public, s-maxage=300, stale-while-revalidate=1800'
+// 5 min fresh, then serve stale for up to 30 min while revalidating in the background.
+// `max-age` (browser) is what cuts EDGE REQUESTS: with it a reload/reopen within 5 min is served
+// from the browser's OWN cache and never reaches Vercel at all (an `s-maxage`-only response is a
+// cheap CDN hit, but it's still an edge request every time). Safe because this shared schedule data
+// only changes on a sync (~30 min) and we already accept 5 min of CDN staleness.
+export const SHARED_CACHE = 'public, max-age=300, s-maxage=300, stale-while-revalidate=1800'
 
 // For per-USER read-mostly routes (a user's picks, their unread alerts, attendance summary). The
 // URL carries the userId, so Vercel caches a separate edge entry per user — repeated opens of the
