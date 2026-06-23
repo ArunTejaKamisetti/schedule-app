@@ -45,6 +45,12 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  experimental: {
+    // Reuse a visited route's RSC payload from the client Router Cache for longer, so tabbing
+    // between pages doesn't re-fetch the segment from Vercel on every navigation (each refetch is an
+    // edge request). Inner data still refreshes via SWR; only the shell is reused.
+    staleTimes: { dynamic: 120, static: 600 },
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },

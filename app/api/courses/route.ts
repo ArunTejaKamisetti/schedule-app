@@ -7,7 +7,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 // distinct URL. The schedule only changes on a sync, so a few minutes of staleness is fine, and
 // stale-while-revalidate keeps it instant during a refresh. Per-user data lives in
 // /api/courses/user, which is NOT cached.
-const SHARED_CACHE = 'public, s-maxage=300, stale-while-revalidate=600'
+// `max-age` (browser) also cuts EDGE REQUESTS: a reload/reopen within 5 min is served from the
+// browser's own cache and never reaches Vercel (an s-maxage-only response is a cheap CDN hit, but
+// still an edge request). Safe — this shared data only changes on a sync.
+const SHARED_CACHE = 'public, max-age=300, s-maxage=300, stale-while-revalidate=600'
 const cached = (data: unknown) => NextResponse.json(data, { headers: { 'Cache-Control': SHARED_CACHE } })
 
 export async function GET(req: NextRequest) {
