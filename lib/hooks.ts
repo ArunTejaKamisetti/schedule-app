@@ -10,6 +10,7 @@
 import useSWR, { type SWRConfiguration } from 'swr'
 import { useCallback, useMemo } from 'react'
 import type { Course, Friendship, User } from './types'
+import { summarizeAttendance, istNow } from './attendance'
 
 export const fetcher = async (url: string) => {
   const r = await fetch(url)
@@ -117,14 +118,20 @@ export function useNotes(userId?: string | null) {
   return { map, raw: data, isLoading, setNote, mutate }
 }
 
-// Per-user attendance stats for the "My Courses" view. `enabled` lets callers pause it (e.g. while
-// editing) without violating the rules-of-hooks.
-export function useAttendanceSummary(userId?: string | null, enabled = true) {
-  const { data, isLoading, mutate } = useSWR<CourseStat[]>(
-    userId && enabled ? `/api/attendance/summary?userId=${userId}` : null
-  )
-  const summary = useMemo(() => (Array.isArray(data) ? data : []), [data])
-  return { summary, isLoading, mutate }
+// Per-course attendance stats for the "My Courses" view, computed on the CLIENT from the already-
+// cached user sessions + attendance (the same pure roll-up the old /api/attendance/summary route ran
+// server-side). This reads the same attendance cache that `setStatus` mutates optimistically, so the
+// stats update the instant a class is marked — no separate, edge-cached summary fetch to go stale.
+// `enabled` lets callers pause both underlying fetches (e.g. while editing picks).
+export function useAttendanceStats(userId?: string | null, enabled = true) {
+  const { courses, isLoading: loadingSessions } = useUserSessions(enabled ? userId : null)
+  const { raw, isLoading: loadingAtt } = useAttendance(enabled ? userId : null)
+  const summary = useMemo<CourseStat[]>(() => {
+    const att = new Map((raw ?? []).map((a) => [a.course_id, a.status]))
+    const { todayISO, nowHM } = istNow()
+    return summarizeAttendance(courses, att, todayISO, nowHM)
+  }, [courses, raw])
+  return { summary, isLoading: loadingSessions || loadingAtt }
 }
 
 export type FriendRow = Friendship & { friend: User }

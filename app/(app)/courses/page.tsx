@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
-import { useUserSessions, useAttendanceSummary } from '@/lib/hooks'
+import { useUserSessions, useAttendanceStats } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
@@ -63,7 +63,7 @@ export default function CoursesPage() {
   // Shared, deduped per-user data (see lib/hooks.ts). Catalog stays a plain fetch below — it's the
   // shared, edge-cached route and varies by admin/year.
   const { codes: serverCodes, rows: sessionRows, mutate: mutateSessions } = useUserSessions(userId)
-  const { summary } = useAttendanceSummary(userId, !editing)
+  const { summary } = useAttendanceStats(userId, !editing)
 
   useEffect(() => {
     // Catalog = one representative row per course (complete, no 1000-row cap). Students always see
