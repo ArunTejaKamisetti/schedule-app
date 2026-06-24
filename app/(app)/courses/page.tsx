@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
-import { useCatalog, useUserSessions, useAttendanceSummary } from '@/lib/hooks'
+import { useCatalog, useUserSessions, useAttendanceStats } from '@/lib/hooks'
 import { clearCachedUser } from '@/lib/session'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -56,7 +56,7 @@ export default function CoursesPage() {
   // Shared, deduped & edge-cached data (see lib/hooks.ts).
   const { courses: allCourses, isLoading: loading } = useCatalog()
   const { codes: serverCodes, rows: sessionRows, mutate: mutateSessions } = useUserSessions(userId)
-  const { summary } = useAttendanceSummary(userId, !editing)
+  const { summary } = useAttendanceStats(userId, !editing)
 
   // Seed the editable selection ONCE from the server (optimistic toggles below own it afterward).
   useEffect(() => {
