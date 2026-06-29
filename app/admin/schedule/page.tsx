@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { FilePicker } from '@/components/file-picker'
 
 interface SourceOpt {
   key: string
@@ -160,10 +161,11 @@ export default function ScheduleAdminPage() {
           {sources.map((s) => <option key={s.key} value={s.key}>{label(s)}</option>)}
         </select>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-          <input
-            type="file"
+          <FilePicker
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            file={file}
+            onPick={setFile}
+            disabled={busy}
           />
           <button
             onClick={upload}

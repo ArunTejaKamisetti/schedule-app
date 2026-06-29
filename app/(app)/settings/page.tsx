@@ -332,7 +332,7 @@ export default function SettingsPage() {
         {/* About */}
         <Section title="About">
           <div className="text-xs text-muted-foreground space-y-1 bg-muted rounded-xl p-3">
-            <p><span className="font-medium text-foreground">Schedule syncs</span>: automatically, every few minutes</p>
+            <p><span className="font-medium text-foreground">Schedule syncs</span>: automatically, every 30 minutes</p>
             <p><span className="font-medium text-foreground">Your data</span>: synced to your college account across devices</p>
             <p className="font-mono text-[10px] opacity-60 pt-1">User ID: {userId?.slice(0, 8)}…</p>
           </div>

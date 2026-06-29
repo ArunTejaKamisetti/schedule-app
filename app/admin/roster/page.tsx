@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { FilePicker } from '@/components/file-picker'
 
 interface UploadResult { ok?: boolean; type?: string; stored?: number; applied?: number; sample?: unknown[]; error?: string }
 
@@ -59,10 +60,11 @@ function UploadCard({ title, hint, type }: { title: string; hint: string; type: 
       <h2 style={{ fontSize: 16, fontWeight: 600 }}>{title}</h2>
       <p style={{ color: '#666', fontSize: 13, marginTop: 4 }}>{hint}</p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-        <input
-          type="file"
+        <FilePicker
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          file={file}
+          onPick={setFile}
+          disabled={busy}
         />
         <button
           onClick={upload}

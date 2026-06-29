@@ -6,7 +6,9 @@ import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Che
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useCommonEvents, useAttendance, useNotes } from '@/lib/hooks'
+import { resolveViewYear, coursesForYear } from '@/lib/year-view'
 import { Skeleton } from '@/components/ui/skeleton'
+import { AdminYearSwitch } from '@/components/admin-year-switch'
 import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
 import type { Course } from '@/lib/types'
@@ -76,9 +78,15 @@ const TERM_DATES: string[] = (() => {
 
 export default function TodayPage() {
   const { userId, user, unreadCount } = useSession()
-  const year = user?.year === 1 ? 1 : 2
-  // Shared, deduped data — no per-mount/per-focus refetch (see lib/hooks.ts).
-  const { courses: mySessions, isLoading: loadingMine } = useUserSessions(userId)
+  const isAdmin = user?.role === 'admin'
+  // Admins can browse either year via the header switch; students are pinned to their own year.
+  const [yearTab, setYearTab] = useState<1 | 2>(2)
+  useEffect(() => { if (user) setYearTab(user.year === 1 ? 1 : 2) }, [user])
+  const year = resolveViewYear(isAdmin, user?.year, yearTab)
+  // Shared, deduped data — no per-mount/per-focus refetch (see lib/hooks.ts). The admin's session
+  // feed spans both years, so scope it to the year being viewed; a student's is already their year.
+  const { courses: allMySessions, isLoading: loadingMine } = useUserSessions(userId)
+  const mySessions = useMemo(() => (isAdmin ? coursesForYear(allMySessions, year) : allMySessions), [isAdmin, allMySessions, year])
   const { events: commonEvents } = useCommonEvents(userId ? year : null)
   const { map: attendance, setStatus: markAttendance } = useAttendance(userId)
   const { map: noteMap } = useNotes(userId)
@@ -161,6 +169,9 @@ export default function TodayPage() {
             </button>
           </div>
         </div>
+
+        {/* Year switch — admin only (students just see their own year). */}
+        {isAdmin && <AdminYearSwitch year={year} onChange={setYearTab} className="mt-3" />}
 
         {/* Tabs: Courses · Mess · Bus */}
         <div className="mt-3 flex gap-1 bg-muted rounded-xl p-0.5">

@@ -6,6 +6,8 @@ import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useWindowCourses, useAttendance, useNotes } from '@/lib/hooks'
+import { resolveViewYear } from '@/lib/year-view'
+import { AdminYearSwitch } from '@/components/admin-year-switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -46,19 +48,26 @@ function recentlyChanged(c: Course): boolean {
 
 export default function SchedulePage() {
   const { userId, user } = useSession()
+  const isAdmin = user?.role === 'admin'
+  // Admins can browse either year via the header switch; students are pinned to their own year.
+  const [yearTab, setYearTab] = useState<1 | 2>(2)
+  useEffect(() => { if (user) setYearTab(user.year === 1 ? 1 : 2) }, [user])
+  const viewYear = resolveViewYear(isAdmin, user?.year, yearTab)
   const todayISO = localISO(new Date())
   const [weekStart, setWeekStart] = useState(weekStartISO(new Date()))
   const [view, setView] = useState<'week' | 'day'>('week')
   const [selectedDate, setSelectedDate] = useState(todayISO)
   const [selected, setSelected] = useState<Course | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
-  // The "Sheet" button opens the admin-configured source sheet for THIS user's year (same resolution
-  // as Settings → View Original Sheet). No hardcoded sheet id — it follows the pasted term link.
+  // The "Sheet" button opens the admin-configured source sheet for the year being viewed (same
+  // resolution as Settings → View Original Sheet). No hardcoded sheet id — it follows the pasted
+  // term link; an admin's link tracks the year switch, a student always gets their own year.
   const [sheetUrl, setSheetUrl] = useState<string | null>(null)
   useEffect(() => {
     if (!userId) return
-    fetch('/api/source-sheet').then((r) => r.json()).then((d) => setSheetUrl(d?.url ?? null)).catch(() => {})
-  }, [userId])
+    const url = isAdmin ? `/api/source-sheet?year=${viewYear}` : '/api/source-sheet'
+    fetch(url).then((r) => r.json()).then((d) => setSheetUrl(d?.url ?? null)).catch(() => {})
+  }, [userId, isAdmin, viewYear])
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => localISO(addDays(parseISO(weekStart), i))),
@@ -78,12 +87,15 @@ export default function SchedulePage() {
     setSelected(null)
   }
 
-  // Courses to display for the week: my picks + common events (exams) for MY year only — the
-  // window fetch now returns both years' rows, so scope common events by the viewer's year.
-  const myYear = user?.year === 1 ? 1 : 2
+  // Courses to display for the week: my picks + common events (exams) for the year being viewed —
+  // the window fetch returns both years' rows. Students see their own year; an admin (whose picks
+  // span both years) additionally scopes their classes to the selected year so the grid stays clean.
   const visible = useMemo(
-    () => windowCourses.filter((c) => c.is_common ? (c.year ?? 2) === myYear : selectedIds.has(c.id)),
-    [windowCourses, selectedIds, myYear]
+    () => windowCourses.filter((c) =>
+      c.is_common
+        ? (c.year ?? 2) === viewYear
+        : selectedIds.has(c.id) && (!isAdmin || (c.year ?? 2) === viewYear)),
+    [windowCourses, selectedIds, viewYear, isAdmin]
   )
 
   const byDate = useMemo(() => {
@@ -115,6 +127,9 @@ export default function SchedulePage() {
             <SheetIcon size={13} /> Sheet
           </button>
         </div>
+
+        {/* Year switch — admin only (students just see their own year). */}
+        {isAdmin && <AdminYearSwitch year={viewYear} onChange={setYearTab} className="mt-3" />}
 
         {/* Week navigation */}
         <div className="mt-3 flex items-center gap-2">
