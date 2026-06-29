@@ -18,13 +18,16 @@ export default async function AdminPreviewPage() {
   try {
     const { fetchBothSheetTabsWithFormatting, parseSheetRows } = await import('@/lib/sheets')
     const { resolveSheetSources } = await import('@/lib/schedule-sources')
+    const { loadInstitutionProfile } = await import('@/lib/institution-profile')
     const { createServiceClient } = await import('@/lib/supabase/server')
     const sources = await resolveSheetSources(createServiceClient())
     const source = sources.find((s) => s.sheetId)
     if (!source) throw new Error('No schedule source configured — paste a Google Sheet link in Admin → Schedule.')
     const raw = await fetchBothSheetTabsWithFormatting(source)
-    const parsed1 = parseSheetRows(raw.sheet1)
-    const parsed2 = parseSheetRows(raw.sheet2)
+    // Same profile the sync uses, so the preview reflects real ingest.
+    const profile = await loadInstitutionProfile(createServiceClient())
+    const parsed1 = parseSheetRows(raw.sheet1, { layout: source.layout, format: raw.sheet1_format, merges: raw.merges, profile })
+    const parsed2 = parseSheetRows(raw.sheet2, { profile })
     data = {
       fetched_at: raw.fetched_at,
       sheet1: { headers: raw.sheet1[0] ?? [], row_count: raw.sheet1.length - 1, sample: raw.sheet1.slice(0, 5), parsed_count: parsed1.length, parsed_sample: parsed1.slice(0, 5) },

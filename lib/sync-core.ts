@@ -1,5 +1,6 @@
 import { parseCourseDetails, getDetailAbbr, getArea, isYmhcVenue, cleanCode, detailKey, fetchBothSheetTabsWithFormatting } from './sheets'
 import type { SheetSource } from './sheets-config'
+import { loadInstitutionProfile } from './institution-profile'
 import { diffSheetData } from './diff'
 import { notifyAffectedUsers } from './notify'
 import { syncGoogleCalendarForUsers } from './gcal'
@@ -19,7 +20,10 @@ export async function syncOneSource(supabase: SB, source: SheetSource) {
 // save the snapshot, and fire notify/calendar side-effects. This is the single code path for every
 // schedule input, so the admin Excel upload behaves exactly like a sync of that source.
 export async function ingestSheetData(supabase: SB, source: SheetSource, newData: RawSheetData) {
-  const detailsMap = parseCourseDetails(newData.sheet2, source.layout)
+  // The admin-configured vocabulary (colours, catalog, sections, overrides, keywords) — loaded once
+  // and threaded through parse/diff/enrich so the whole ingest reads the SAME profile.
+  const profile = await loadInstitutionProfile(supabase)
+  const detailsMap = parseCourseDetails(newData.sheet2, source.layout, profile)
 
   // Per-source baseline snapshot.
   const { data: lastLog } = await supabase
@@ -28,7 +32,7 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
     .order('synced_at', { ascending: false }).limit(1).maybeSingle()
   const previousSnapshot = lastLog?.raw_snapshot ?? null
 
-  const diff = diffSheetData(previousSnapshot, newData)
+  const diff = diffSheetData(previousSnapshot, newData, profile)
   const syncStartedAt = new Date().toISOString()
 
   // Fast no-op path: once we have a baseline, most runs (especially at a 30-min cadence) find the
@@ -65,7 +69,7 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
     const enrichedRows = rows.map((r) => {
       if (r.is_common) return { ...r, area: null }
       if (source.layout === 'section') {
-        const { primary, fallback } = detailKey(r.course_code, r.sheet_tab, 'section')
+        const { primary, fallback } = detailKey(r.course_code, r.sheet_tab, 'section', profile)
         const base = detailsMap.get(fallback)
         const secDetail = detailsMap.get(primary)
         return {
@@ -76,13 +80,13 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
           area: null,
         }
       }
-      const detail = detailsMap.get(getDetailAbbr(r.course_code))
+      const detail = detailsMap.get(getDetailAbbr(r.course_code, profile))
       return {
         ...r,
-        course_name: isYmhcVenue(r.course_code) ? cleanCode(r.course_code) : (detail?.name || r.course_name),
+        course_name: isYmhcVenue(r.course_code, profile) ? cleanCode(r.course_code) : (detail?.name || r.course_name),
         instructor: detail?.faculty || r.instructor || null,
         credits: detail?.credits || r.credits || null,
-        area: getArea(r.course_code),
+        area: getArea(r.course_code, profile),
       }
     })
 

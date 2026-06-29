@@ -1,5 +1,6 @@
 import type { CellFormat, Course, CourseChange, RawSheetData } from './types'
 import { classifyColor, getBaseAbbr, parseSheetRows, type ParsedCourse } from './sheets'
+import { DEFAULT_PROFILE, type InstitutionProfile } from './institution-profile'
 
 function parsedToPartial(p: ParsedCourse): Partial<Course> {
   return {
@@ -25,17 +26,19 @@ function parsedToPartial(p: ParsedCourse): Partial<Course> {
 // Coordinators mark cells by colour: red (or strikethrough) = cancelled, green = added/new.
 // Reads the EXACT cell the parser used (row + column), so a course code that appears in several
 // columns of one row can never have its colour read from the wrong (first) cell.
-function cellState(format: CellFormat[][] | undefined, rowIndex: number, colIndex: number | undefined): 'red' | 'green' | 'event' | 'normal' {
+function cellState(
+  format: CellFormat[][] | undefined, rowIndex: number, colIndex: number | undefined, profile: InstitutionProfile
+): 'red' | 'green' | 'event' | 'normal' {
   if (!format || colIndex == null || colIndex < 0) return 'normal'
   const fmt = format[rowIndex]?.[colIndex]
   if (!fmt) return 'normal'
   if (fmt.strikethrough) return 'red'
-  return classifyColor(fmt.bgColor)
+  return classifyColor(fmt.bgColor, profile.colors)
 }
 
-// Re-parse a snapshot's schedule grid with its source layout + formatting + merges.
-function parseSnapshot(d: RawSheetData): ParsedCourse[] {
-  return parseSheetRows(d.sheet1, { layout: d.layout ?? 'division', format: d.sheet1_format, merges: d.merges })
+// Re-parse a snapshot's schedule grid with its source layout + formatting + merges + profile.
+function parseSnapshot(d: RawSheetData, profile: InstitutionProfile): ParsedCourse[] {
+  return parseSheetRows(d.sheet1, { layout: d.layout ?? 'division', format: d.sheet1_format, merges: d.merges, profile })
 }
 
 export interface DiffResult {
@@ -52,10 +55,12 @@ function slotKey(c: { session_date: string; start_time: string; sheet_tab: strin
   return `${c.session_date}::${c.start_time}::${c.sheet_tab}`
 }
 
-export function diffSheetData(previousSnapshot: RawSheetData | null, newData: RawSheetData): DiffResult {
-  const newState = (c: ParsedCourse) => cellState(newData.sheet1_format, c.sheet_row_index, c.sheet_col)
+export function diffSheetData(
+  previousSnapshot: RawSheetData | null, newData: RawSheetData, profile: InstitutionProfile = DEFAULT_PROFILE
+): DiffResult {
+  const newState = (c: ParsedCourse) => cellState(newData.sheet1_format, c.sheet_row_index, c.sheet_col, profile)
 
-  const newAll = parseSnapshot(newData)
+  const newAll = parseSnapshot(newData, profile)
   for (const c of newAll) {
     c.is_cancelled = newState(c) === 'red'
   }
@@ -70,9 +75,9 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
     }
   }
 
-  const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1_format, c.sheet_row_index, c.sheet_col)
+  const oldState = (c: ParsedCourse) => cellState(previousSnapshot.sheet1_format, c.sheet_row_index, c.sheet_col, profile)
 
-  const oldAll = parseSnapshot(previousSnapshot)
+  const oldAll = parseSnapshot(previousSnapshot, profile)
   for (const c of oldAll) {
     c.is_cancelled = oldState(c) === 'red'
   }

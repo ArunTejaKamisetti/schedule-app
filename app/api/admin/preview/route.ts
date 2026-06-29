@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { fetchBothSheetTabsWithFormatting, parseSheetRows } from '@/lib/sheets'
 import { requireAdmin } from '@/lib/admin'
 import { resolveSheetSources } from '@/lib/schedule-sources'
+import { loadInstitutionProfile } from '@/lib/institution-profile'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export async function GET() {
@@ -15,8 +16,10 @@ export async function GET() {
       return NextResponse.json({ error: 'No schedule source configured — paste a Google Sheet link in Admin → Schedule.' }, { status: 400 })
     }
     const data = await fetchBothSheetTabsWithFormatting(source)
-    const parsed1 = parseSheetRows(data.sheet1)
-    const parsed2 = parseSheetRows(data.sheet2)
+    // Parse with the SAME admin-configured profile the real sync uses, so the preview matches ingest.
+    const profile = await loadInstitutionProfile(createServiceClient())
+    const parsed1 = parseSheetRows(data.sheet1, { layout: source.layout, format: data.sheet1_format, merges: data.merges, profile })
+    const parsed2 = parseSheetRows(data.sheet2, { profile })
 
     return NextResponse.json({
       fetched_at: data.fetched_at,

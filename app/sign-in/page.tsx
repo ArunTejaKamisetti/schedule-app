@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { ALLOWED_EMAIL_DOMAIN, INSTITUTION_SHORT_NAME } from '@/lib/branding'
 
 const ERRORS: Record<string, string> = {
-  domain: 'Please sign in with your @iimk.ac.in college account.',
+  domain: `Please sign in with your @${ALLOWED_EMAIL_DOMAIN} college account.`,
   auth: 'Sign-in failed. Please try again.',
   missing_code: 'Sign-in was interrupted. Please try again.',
 }
@@ -25,7 +26,7 @@ export default function SignInPage() {
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
         // `hd` nudges Google to the college domain; the server re-checks it.
-        queryParams: { hd: 'iimk.ac.in', prompt: 'select_account' },
+        queryParams: { hd: ALLOWED_EMAIL_DOMAIN, prompt: 'select_account' },
       },
     })
     if (error) setLoading(false)
@@ -37,7 +38,7 @@ export default function SignInPage() {
         <div>
           <h1 className="text-2xl font-bold">KampusSchedule</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Your IIM-K schedule, mess, bus, attendance &amp; friends — in one place.
+            Your {INSTITUTION_SHORT_NAME} schedule, mess, bus, attendance &amp; friends — in one place.
           </p>
         </div>
 
@@ -57,7 +58,7 @@ export default function SignInPage() {
         </button>
 
         <p className="text-xs text-muted-foreground">
-          Sign in with your <b>@iimk.ac.in</b> account.
+          Sign in with your <b>@{ALLOWED_EMAIL_DOMAIN}</b> account.
         </p>
       </div>
     </div>
