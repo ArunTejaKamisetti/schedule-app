@@ -1,4 +1,4 @@
-import { parseCourseDetails, getDetailAbbr, getArea, isYmhcVenue, cleanCode, detailKey, fetchBothSheetTabsWithFormatting } from './sheets'
+import { parseCourseDetails, getDetailAbbr, getArea, detailKey, fetchBothSheetTabsWithFormatting } from './sheets'
 import type { SheetSource } from './sheets-config'
 import { loadInstitutionProfile } from './institution-profile'
 import { diffSheetData } from './diff'
@@ -80,10 +80,13 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
           area: null,
         }
       }
+      // course_code is already canonical (a venue/edge-case override was applied in the parser), so
+      // enrichment is the same for every course: look up Course Details by code, else keep the parsed
+      // name (which is the cell's own label for an override cell).
       const detail = detailsMap.get(getDetailAbbr(r.course_code, profile))
       return {
         ...r,
-        course_name: isYmhcVenue(r.course_code, profile) ? cleanCode(r.course_code) : (detail?.name || r.course_name),
+        course_name: detail?.name || r.course_name,
         instructor: detail?.faculty || r.instructor || null,
         credits: detail?.credits || r.credits || null,
         area: getArea(r.course_code, profile),

@@ -162,6 +162,32 @@ describe('parse + diff with a custom colour profile', () => {
   })
 })
 
+describe('venue/edge-case override — canonicalises the code so roster/enrolment match', () => {
+  it('rewrites a matching cell to its real course code, keeping the cell text as the label', () => {
+    const profile: InstitutionProfile = {
+      ...DEFAULT_PROFILE,
+      overrides: [{ match: 'lab block', detailAbbr: 'CHEM', area: 'Sciences' }],
+      catalog: { areaMap: {}, aliases: {}, qualifiers: [] }, // CHEM intentionally NOT in the area map
+    }
+    const rows = [
+      ['DATE', 'TIME', 'PGP', 'PGP'],
+      ['', '', 'D1', 'D2'],
+      ['Tuesday, 9 June, 2026', '09.15-10.30', 'CHEM\nLab Block 4', 'GT-A'],
+    ]
+    const parsed = parseSheetRows(rows, { profile })
+    const chem = parsed.find((p) => p.course_code === 'CHEM')!
+    expect(chem).toBeTruthy()                       // canonicalised → would match a roster code "CHEM"
+    expect(chem.course_name).toBe('CHEM Lab Block 4') // cell label kept
+    // Forced area survives canonicalisation even though CHEM isn't in the (empty) area map.
+    expect(getArea(chem.course_code, profile)).toBe('Sciences')
+  })
+
+  it('default YMHC override: canonical code "YMHC" still resolves to HLAM', () => {
+    expect(getArea('YMHC', DEFAULT_PROFILE)).toBe('HLAM')          // via the override forced area
+    expect(getArea('YMHC MN Common Room', DEFAULT_PROFILE)).toBe('HLAM') // raw text path too
+  })
+})
+
 describe('parseSheetRows with custom section labels', () => {
   it('parses a "Section 1/2" sheet using a configured vocabulary', () => {
     const profile: InstitutionProfile = {

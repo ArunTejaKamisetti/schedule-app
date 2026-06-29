@@ -313,12 +313,11 @@ describe('YMHC venue special-case (one-off admin data fix)', () => {
     expect(getArea('YMHC\nMN Common Room')).toBe('HLAM')
     expect(getArea('YMHC')).toBe('HLAM')                        // plain YMHC already HLAM
   })
-  it('preserves the raw YMHC venue code (enrolment-stable) but cleans it for display', () => {
+  it('canonicalises a venue-override cell to its real code (so roster/enrolment match) and keeps the label', () => {
     const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', '', '', '']])
     const parsed = parseSheetRows(data.sheet1)[0]
-    expect(parsed.course_code).toBe('YMHC\nMN Common Room') // code unchanged → existing picks survive
-    expect(cleanCode(parsed.course_code)).toBe('YMHC MN Common Room') // display form
-    expect(isYmhcVenue(parsed.course_code)).toBe(true)     // still routes to YMHC details + HLAM
+    expect(parsed.course_code).toBe('YMHC')                 // canonical → matches the roster code "YMHC"
+    expect(parsed.course_name).toBe('YMHC MN Common Room')  // the cell's own text kept for display
   })
 })
 

@@ -68,8 +68,12 @@ export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAUL
 }
 
 export function getArea(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
+  // Honour an override's forced area whether `code` is still the raw cell text (contains the match)
+  // or has already been canonicalised to the override's detailAbbr (the parser rewrites it).
   const ov = matchOverride(code, profile.overrides)
   if (ov?.area) return ov.area
+  const canon = profile.overrides.find((o) => o.area && o.detailAbbr && o.detailAbbr === code)
+  if (canon?.area) return canon.area
   // Programme qualifiers take priority (Sheet-2 truth) — a FIN/LSM-core course must land
   // under FIN/LSM Core even if its base abbreviation also exists as a PGP elective area.
   const q = qualifierArea(code, profile.catalog.qualifiers)
@@ -358,10 +362,16 @@ function parseScheduleMatrix(
     if (!timeStr || isSkip(timeStr)) continue
     const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
     for (const s of sections) {
-      const code = (row[s.col] || '').trim()
-      if (!code || isSkip(code)) continue
+      const raw = (row[s.col] || '').trim()
+      if (!raw || isSkip(raw)) continue
+      // A venue/edge-case override CANONICALISES the code (e.g. "YMHC MN Common Room" → "YMHC") so the
+      // session matches the roster / enrolment / catalog by its real course code, while the cell's own
+      // text is kept as the display name. Without this the raw cell text would never match "YMHC".
+      const ov = matchOverride(raw, profile.overrides)
       results.push({
-        course_code: code, course_name: code, instructor: '',
+        course_code: ov ? ov.detailAbbr : raw,
+        course_name: ov ? cleanCode(raw) : raw,
+        instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
         is_common: false, event_kind: 'class',

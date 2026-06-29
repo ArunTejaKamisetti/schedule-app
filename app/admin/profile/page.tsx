@@ -269,15 +269,24 @@ function OverridesTab({ value, onChange, onSave }: { value: VenueOverride[]; onC
       <div style={card}>
         <span style={labelStyle}>Venue / edge-case overrides</span>
         <p style={hint}>
-          When a schedule cell <b>contains</b> the match text, enrich it from the given Course-Details
-          abbreviation (and optionally force an area). The cell keeps its own label for display. Example:
-          a cell typed as &quot;YMHC MN Common Room&quot; → match &quot;common room&quot;, abbr &quot;YMHC&quot;, area &quot;HLAM&quot;.
+          For cells that aren&apos;t a plain course code. When a cell&apos;s text contains your{' '}
+          <b>match text</b>, that session is treated as the <b>course code</b> you give here — so it shows
+          up for everyone enrolled in that course (roster, enrolment and Course Details all match by the
+          real code). The cell&apos;s own text is kept as the label.
+        </p>
+        <p style={hint}>
+          Example: a cell typed as &quot;YMHC — MN Common Room&quot;. Match text <code>common room</code>,
+          course code <code>YMHC</code>, area <code>HLAM</code>. Anyone enrolled in YMHC now sees it.
+        </p>
+        <p style={{ ...hint, color: '#64748b' }}>
+          Match text is a simple &quot;contains&quot; check (case-insensitive). After saving, run a sync
+          for it to take effect on the schedule.
         </p>
         {value.length === 0 && <p style={{ color: '#94a3b8', fontSize: 13 }}>No overrides.</p>}
         {value.map((o, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-            <input value={o.match} onChange={(e) => set(i, { match: e.target.value })} placeholder="cell contains…" style={{ ...inputStyle, flex: 2, minWidth: 160 }} />
-            <input value={o.detailAbbr} onChange={(e) => set(i, { detailAbbr: e.target.value })} placeholder="enrich as abbr" style={{ ...inputStyle, flex: 1, minWidth: 120 }} />
+            <input value={o.match} onChange={(e) => set(i, { match: e.target.value })} placeholder="match text (e.g. common room)" style={{ ...inputStyle, flex: 2, minWidth: 180 }} />
+            <input value={o.detailAbbr} onChange={(e) => set(i, { detailAbbr: e.target.value })} placeholder="course code (e.g. YMHC)" style={{ ...inputStyle, flex: 1, minWidth: 130 }} />
             <input value={o.area ?? ''} onChange={(e) => set(i, { area: e.target.value })} placeholder="area (optional)" style={{ ...inputStyle, flex: 1, minWidth: 110 }} />
             <button onClick={() => onChange(value.filter((_, j) => j !== i))} style={delBtn}>Remove</button>
           </div>
