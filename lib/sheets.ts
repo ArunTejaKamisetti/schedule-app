@@ -67,15 +67,20 @@ export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAUL
   return key
 }
 
-// Apply a catalog alias to a code's base abbreviation, KEEPING its section/qualifier suffix and
-// original casing: "RTM" → "RM", "RTM-A" → "RM-A", "RTM (FIN)" → "RM (FIN)". Used to canonicalise
-// BOTH the schedule's course_code (parser) AND the roster's enrolment codes (lib/roster) to the same
-// value — so when the schedule says "RTM" but the roster says "RM", user_sessions (which matches
-// course_code EXACTLY) still lines them up. Unaliased codes are returned unchanged.
-export function aliasCode(code: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases): string {
+// Map a ROSTER/enrolment code onto the SCHEDULE's code, so user_sessions (which matches course_code
+// EXACTLY) lines them up — WITHOUT changing what the schedule stores/shows. The schedule code is the
+// source of truth for display; the alias only normalises the roster's alternate spelling.
+//   alias { RTM: 'RM' }  (schedule "RTM" == Course-Details/roster "RM")
+//   "RM"   → "RTM"   (roster wrote the details code → map back to the schedule code)
+//   "RM-A" → "RTM-A" (section/qualifier suffix kept)
+//   "RTM"  → "RTM"   (roster already wrote the schedule code → unchanged)
+//   "GT-A" → "GT-A"  (no alias → unchanged)
+export function aliasToScheduleCode(code: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases): string {
   const base = getBaseAbbr(code)
-  const target = aliases[base] ?? aliases[base.toUpperCase()]
-  return target ? target + code.slice(base.length) : code
+  const up = base.toUpperCase()
+  if (aliases[base] ?? aliases[up]) return code // already a schedule-side code (an alias key)
+  const entry = Object.entries(aliases).find(([, v]) => v.toUpperCase() === up)
+  return entry ? entry[0] + code.slice(base.length) : code
 }
 
 export function getArea(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
@@ -375,16 +380,14 @@ function parseScheduleMatrix(
     for (const s of sections) {
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
-      // Canonicalise the stored code so it matches the roster / enrolment / catalog by the SAME value
-      // (user_sessions matches course_code exactly):
-      //   • a venue/edge-case override → its real code (e.g. "YMHC MN Common Room" → "YMHC"), and we
-      //     keep the cell's own text as the display name;
-      //   • otherwise a catalog alias on the base abbr (e.g. "RTM" → "RM"), display named by enrichment.
+      // Keep the SCHEDULE's own code as the stored/displayed code (the schedule is the source of
+      // truth for display). A venue/edge-case override is the one exception: it canonicalises the
+      // code to its real abbreviation (e.g. "YMHC MN Common Room" → "YMHC") while keeping the cell's
+      // text as the label. The roster's alternate spelling is mapped onto THIS code in lib/roster.
       const ov = matchOverride(raw, profile.overrides)
-      const code = ov ? ov.detailAbbr : aliasCode(raw, profile.catalog.aliases)
       results.push({
-        course_code: code,
-        course_name: ov ? cleanCode(raw) : code,
+        course_code: ov ? ov.detailAbbr : raw,
+        course_name: ov ? cleanCode(raw) : raw,
         instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,

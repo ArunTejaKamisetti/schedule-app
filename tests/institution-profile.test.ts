@@ -4,7 +4,7 @@ import {
   sectionHeaderRegex, divisionCodeRegex, mergeProfile, rowsToPatch, sanitizeProfilePatch,
   type ColorRules, type InstitutionProfile,
 } from '@/lib/institution-profile'
-import { classifyColor, getArea, getDetailAbbr, parseSheetRows, aliasCode } from '@/lib/sheets'
+import { classifyColor, getArea, getDetailAbbr, parseSheetRows, aliasToScheduleCode } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { buildSheet, fmtAt } from './helpers'
 import type { CellFormat } from '@/lib/types'
@@ -162,30 +162,35 @@ describe('parse + diff with a custom colour profile', () => {
   })
 })
 
-describe('aliasCode — canonicalises a code via a catalog alias (schedule↔roster match)', () => {
-  it('aliases the base abbr, keeping section/qualifier suffix', () => {
-    expect(aliasCode('RTM')).toBe('RM')
-    expect(aliasCode('RTM-A')).toBe('RM-A')
-    expect(aliasCode('RTM (FIN)')).toBe('RM (FIN)')
+describe('aliasToScheduleCode — maps a roster code onto the schedule code (no schedule change)', () => {
+  it('maps the alias target back to the schedule code, keeping the suffix', () => {
+    expect(aliasToScheduleCode('RM')).toBe('RTM')
+    expect(aliasToScheduleCode('RM-A')).toBe('RTM-A')
   })
-  it('leaves the canonical code and unaliased codes unchanged', () => {
-    expect(aliasCode('RM')).toBe('RM')       // already canonical
-    expect(aliasCode('GT-A')).toBe('GT-A')   // no alias
+  it('leaves a roster that already wrote the schedule code, and unaliased codes, unchanged', () => {
+    expect(aliasToScheduleCode('RTM')).toBe('RTM')   // already schedule-side
+    expect(aliasToScheduleCode('GT-A')).toBe('GT-A') // no alias
   })
   it('uses a custom alias map when given one', () => {
-    expect(aliasCode('ZZZ-B', { ZZZ: 'QQ' })).toBe('QQ-B')
+    expect(aliasToScheduleCode('QQ-B', { ZZZ: 'QQ' })).toBe('ZZZ-B')
   })
 })
 
-describe('parser canonicalises an aliased schedule code so the roster code matches', () => {
-  it('a schedule "RTM" cell is stored as "RM" (the roster/Course-Details code)', () => {
+describe('schedule keeps its own code; roster maps onto it', () => {
+  it('a schedule "RTM" cell is stored/shown as "RTM" (not the roster "RM")', () => {
     const rows = [
       ['DATE', 'TIME', 'PGP', 'PGP'],
       ['', '', 'D1', 'D2'],
       ['Tuesday, 9 June, 2026', '09.15-10.30', 'RTM', 'GT-A'],
     ]
-    const parsed = parseSheetRows(rows) // default profile carries the RTM→RM alias
-    expect(parsed.map((p) => p.course_code).sort()).toEqual(['GT-A', 'RM'])
+    const parsed = parseSheetRows(rows)
+    const rtm = parsed.find((p) => p.course_code === 'RTM')!
+    expect(rtm).toBeTruthy()                 // schedule code preserved
+    expect(rtm.course_name).toBe('RTM')      // displayed as the schedule wrote it
+    // A roster "RM" maps onto "RTM", so it matches this session.
+    expect(aliasToScheduleCode('RM')).toBe('RTM')
+    // And the area resolves from the schedule code (RTM is in the area map; RM is not).
+    expect(getArea('RTM')).toBe('MM')
   })
 })
 

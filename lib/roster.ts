@@ -1,6 +1,6 @@
 import { createServiceClient } from './supabase/server'
 import { normalizeEmail } from './auth'
-import { aliasCode } from './sheets'
+import { aliasToScheduleCode } from './sheets'
 import { loadInstitutionProfile } from './institution-profile'
 import type { Year1RosterEntry, Year2RosterEntry } from './roster-parse'
 
@@ -15,13 +15,13 @@ export async function storeYear1Roster(supabase: SB, entries: Year1RosterEntry[]
 }
 
 export async function storeYear2Roster(supabase: SB, entries: Year2RosterEntry[]) {
-  // Canonicalise each enrolment code with the catalog alias (e.g. a roster "RTM" or "RM" both store
-  // as "RM"), so it matches the schedule's canonicalised course_code. The default profile already
-  // carries the IIM-K aliases, so this works even before any admin config.
+  // Map each enrolment code onto the SCHEDULE's code via the catalog alias (e.g. a roster "RM" → the
+  // schedule's "RTM"; a roster that already wrote "RTM" is unchanged), so it matches the course_code
+  // the schedule stores/shows. The default profile already carries the IIM-K aliases (works pre-config).
   const aliases = (await loadInstitutionProfile(supabase)).catalog.aliases
   const rows = entries.map((e) => ({
     email: e.email, year: 2, section: null,
-    codes: e.codes.map((c) => aliasCode(c, aliases)),
+    codes: e.codes.map((c) => aliasToScheduleCode(c, aliases)),
   }))
   return upsertAndApply(supabase, rows)
 }
