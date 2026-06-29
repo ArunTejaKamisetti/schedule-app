@@ -199,10 +199,14 @@ function CatalogTab({ value, onChange, onSave }: { value: CatalogConfig; onChang
       </div>
 
       <div style={card}>
-        <span style={labelStyle}>Cross-sheet aliases — schedule code → Course Details code</span>
-        <p style={hint}>When the schedule and the Course Details tab use different abbreviations for the same course (e.g. RTM → RM).</p>
+        <span style={labelStyle}>Course aliases — alternate code → canonical code</span>
+        <p style={hint}>
+          When the same course is written differently in the schedule vs the roster / Course Details
+          (e.g. schedule &quot;RTM&quot;, roster &quot;RM&quot;). Both are normalised to the right-hand
+          code so the class shows for enrolled students. Section suffixes are kept (RTM-A → RM-A).
+        </p>
         <PairEditor
-          pairs={value.aliases} keyLabel="Schedule (RTM)" valLabel="Details (RM)"
+          pairs={value.aliases} keyLabel="Alternate (RTM)" valLabel="Canonical (RM)"
           onChange={(aliases) => onChange({ ...value, aliases })}
         />
       </div>

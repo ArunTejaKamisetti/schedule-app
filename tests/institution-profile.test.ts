@@ -4,7 +4,7 @@ import {
   sectionHeaderRegex, divisionCodeRegex, mergeProfile, rowsToPatch, sanitizeProfilePatch,
   type ColorRules, type InstitutionProfile,
 } from '@/lib/institution-profile'
-import { classifyColor, getArea, getDetailAbbr, parseSheetRows } from '@/lib/sheets'
+import { classifyColor, getArea, getDetailAbbr, parseSheetRows, aliasCode } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { buildSheet, fmtAt } from './helpers'
 import type { CellFormat } from '@/lib/types'
@@ -159,6 +159,33 @@ describe('parse + diff with a custom colour profile', () => {
     const next = buildSheet([ROW], [fmtAt(2, RED)])
     const d = diffSheetData(prev, next) // no profile → DEFAULT_PROFILE
     expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.course_code)).toEqual(['GT-A'])
+  })
+})
+
+describe('aliasCode — canonicalises a code via a catalog alias (schedule↔roster match)', () => {
+  it('aliases the base abbr, keeping section/qualifier suffix', () => {
+    expect(aliasCode('RTM')).toBe('RM')
+    expect(aliasCode('RTM-A')).toBe('RM-A')
+    expect(aliasCode('RTM (FIN)')).toBe('RM (FIN)')
+  })
+  it('leaves the canonical code and unaliased codes unchanged', () => {
+    expect(aliasCode('RM')).toBe('RM')       // already canonical
+    expect(aliasCode('GT-A')).toBe('GT-A')   // no alias
+  })
+  it('uses a custom alias map when given one', () => {
+    expect(aliasCode('ZZZ-B', { ZZZ: 'QQ' })).toBe('QQ-B')
+  })
+})
+
+describe('parser canonicalises an aliased schedule code so the roster code matches', () => {
+  it('a schedule "RTM" cell is stored as "RM" (the roster/Course-Details code)', () => {
+    const rows = [
+      ['DATE', 'TIME', 'PGP', 'PGP'],
+      ['', '', 'D1', 'D2'],
+      ['Tuesday, 9 June, 2026', '09.15-10.30', 'RTM', 'GT-A'],
+    ]
+    const parsed = parseSheetRows(rows) // default profile carries the RTM→RM alias
+    expect(parsed.map((p) => p.course_code).sort()).toEqual(['GT-A', 'RM'])
   })
 })
 

@@ -67,6 +67,17 @@ export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAUL
   return key
 }
 
+// Apply a catalog alias to a code's base abbreviation, KEEPING its section/qualifier suffix and
+// original casing: "RTM" → "RM", "RTM-A" → "RM-A", "RTM (FIN)" → "RM (FIN)". Used to canonicalise
+// BOTH the schedule's course_code (parser) AND the roster's enrolment codes (lib/roster) to the same
+// value — so when the schedule says "RTM" but the roster says "RM", user_sessions (which matches
+// course_code EXACTLY) still lines them up. Unaliased codes are returned unchanged.
+export function aliasCode(code: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases): string {
+  const base = getBaseAbbr(code)
+  const target = aliases[base] ?? aliases[base.toUpperCase()]
+  return target ? target + code.slice(base.length) : code
+}
+
 export function getArea(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
   // Honour an override's forced area whether `code` is still the raw cell text (contains the match)
   // or has already been canonicalised to the override's detailAbbr (the parser rewrites it).
@@ -364,13 +375,16 @@ function parseScheduleMatrix(
     for (const s of sections) {
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
-      // A venue/edge-case override CANONICALISES the code (e.g. "YMHC MN Common Room" → "YMHC") so the
-      // session matches the roster / enrolment / catalog by its real course code, while the cell's own
-      // text is kept as the display name. Without this the raw cell text would never match "YMHC".
+      // Canonicalise the stored code so it matches the roster / enrolment / catalog by the SAME value
+      // (user_sessions matches course_code exactly):
+      //   • a venue/edge-case override → its real code (e.g. "YMHC MN Common Room" → "YMHC"), and we
+      //     keep the cell's own text as the display name;
+      //   • otherwise a catalog alias on the base abbr (e.g. "RTM" → "RM"), display named by enrichment.
       const ov = matchOverride(raw, profile.overrides)
+      const code = ov ? ov.detailAbbr : aliasCode(raw, profile.catalog.aliases)
       results.push({
-        course_code: ov ? ov.detailAbbr : raw,
-        course_name: ov ? cleanCode(raw) : raw,
+        course_code: code,
+        course_name: ov ? cleanCode(raw) : code,
         instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
