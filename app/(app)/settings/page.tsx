@@ -39,22 +39,8 @@ export default function SettingsPage() {
   })
   const [showManual, setShowManual] = useState(false)
   const [gcalConnected, setGcalConnected] = useState(false)
-  const [classReminders, setClassReminders] = useState(true)
 
   useEffect(() => setMounted(true), [])
-
-  // Class reminders are a device-local toggle (no server). On = the app schedules a heads-up
-  // ~14 min before each class while it's open.
-  useEffect(() => { setClassReminders(localStorage.getItem('class_reminders_off') !== '1') }, [])
-  function toggleClassReminders() {
-    setClassReminders((on) => {
-      const next = !on
-      localStorage.setItem('class_reminders_off', next ? '0' : '1')
-      if (next && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission()
-      toast.success(next ? 'Class reminders on' : 'Class reminders off')
-      return next
-    })
-  }
 
   useEffect(() => {
     if (!userId) return
@@ -205,7 +191,7 @@ export default function SettingsPage() {
           {!PUSH_CONFIGURED ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted rounded-xl p-4">
               <Info size={16} />
-              <p>Push notifications aren&apos;t configured on this deployment. Class reminders and the calendar feed still work.</p>
+              <p>Push notifications aren&apos;t configured on this deployment. The calendar feed and in-app alerts still work.</p>
             </div>
           ) : pushSupported ? (
             <button
@@ -235,14 +221,6 @@ export default function SettingsPage() {
                 <span className="text-sm text-foreground">{label}</span>
               </label>
             ))}
-            {/* Device-local — no server cron. */}
-            <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">
-              <Checkbox checked={classReminders} onCheckedChange={toggleClassReminders} />
-              <span>
-                <span className="text-sm text-foreground">Class reminder (~14 min before)</span>
-                <span className="block text-[11px] text-muted-foreground">A heads-up before each class, on this device, while the app is open.</span>
-              </span>
-            </label>
           </div>
         </Section>
 
@@ -354,8 +332,8 @@ export default function SettingsPage() {
         {/* About */}
         <Section title="About">
           <div className="text-xs text-muted-foreground space-y-1 bg-muted rounded-xl p-3">
-            <p><span className="font-medium text-foreground">Schedule syncs</span>: on every sheet change + every 15 minutes</p>
-            <p><span className="font-medium text-foreground">Your data</span>: stored on device + cloud, no sign-in needed</p>
+            <p><span className="font-medium text-foreground">Schedule syncs</span>: automatically, every few minutes</p>
+            <p><span className="font-medium text-foreground">Your data</span>: synced to your college account across devices</p>
             <p className="font-mono text-[10px] opacity-60 pt-1">User ID: {userId?.slice(0, 8)}…</p>
           </div>
         </Section>

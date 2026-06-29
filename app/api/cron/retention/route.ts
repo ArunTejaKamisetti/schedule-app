@@ -21,13 +21,14 @@ export async function POST(req: NextRequest) {
   const cutoffDate = retentionCutoffDate(now, days)
   const cutoffIso = retentionCutoffIso(now, days)
 
-  // `head: true` + exact count returns how many rows the delete removed without shipping them back.
+  // `count: 'exact'` returns how many rows the delete removed; a delete returns no rows by default
+  // (no `.select()`), so nothing is shipped back regardless.
   const purgedNotes = await supabase
-    .from('notes').delete({ count: 'exact', head: true }).lt('session_date', cutoffDate)
+    .from('notes').delete({ count: 'exact' }).lt('session_date', cutoffDate)
   const purgedAttendance = await supabase
-    .from('attendance').delete({ count: 'exact', head: true }).lt('marked_at', cutoffIso)
+    .from('attendance').delete({ count: 'exact' }).lt('marked_at', cutoffIso)
   const purgedNotifications = await supabase
-    .from('notifications').delete({ count: 'exact', head: true }).lt('created_at', cutoffIso)
+    .from('notifications').delete({ count: 'exact' }).lt('created_at', cutoffIso)
 
   return NextResponse.json({
     ok: true,

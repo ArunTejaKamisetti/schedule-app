@@ -7,8 +7,8 @@ export function normalizeEmail(email?: string | null): string {
   return (email ?? '').trim().toLowerCase()
 }
 
-// The default display name: the local-part of the email (before "@"). Used when a user has set
-// no name of their own — name editing is no longer offered, so this is the shown name.
+// The default display name: the local-part of the email (before "@"). Shown until/unless the user
+// sets their own name (Friends page) — so a fresh account never appears blank.
 // e.g. "arun.teja_2027@iimk.ac.in" → "arun.teja_2027".
 export function emailUsername(email?: string | null): string {
   const e = normalizeEmail(email)

@@ -24,11 +24,8 @@ export interface SheetSource {
 
 export const SHEET_SOURCES: SheetSource[] = [
   { key: 'y2', year: 2, layout: 'division' },
-  { key: 'y1-AH', year: 1, sheetId: '15yrTywIp6s-64fBpghqdSpW2rqVQpJYStVSEIpTn0_I', layout: 'section' },
+  { key: 'y1-AH', year: 1, layout: 'section' },
   // When those sections exist, just add (the admin then pastes each one's link):
   // { key: 'y1-LSM', year: 1, layout: 'section' },
   // { key: 'y1-FIN', year: 1, layout: 'section' },
 ]
-
-// All 1st-year sections the picker should offer (data may not exist yet → "Ask Developer…").
-export const YEAR1_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'LSM', 'FIN'] as const

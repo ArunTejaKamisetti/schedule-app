@@ -72,7 +72,7 @@ export interface Notification {
   user_id: string
   title: string
   body: string
-  type: 'cancelled' | 'rescheduled' | 'room_change' | 'added' | 'removed' | 'schedule_update' | 'class_reminder'
+  type: 'cancelled' | 'rescheduled' | 'room_change' | 'added' | 'removed' | 'schedule_update'
   course_id: string | null
   read: boolean
   created_at: string

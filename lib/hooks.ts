@@ -1,8 +1,8 @@
 'use client'
 
-// Client data layer. Every page used to `fetch` the same routes on each mount (and ClassReminders
-// re-fetched on every focus), so navigating Today → Schedule → Courses hammered the serverless
-// functions and burned Vercel Fluid Active CPU. These SWR hooks give us one shared, deduped cache
+// Client data layer. Every page used to `fetch` the same routes on each mount, so navigating
+// Today → Schedule → Courses hammered the serverless functions and burned Vercel Fluid Active CPU.
+// These SWR hooks give us one shared, deduped cache
 // across all pages/components: the same key is fetched once and reused, mutations update the cache
 // optimistically, and `revalidateOnFocus` is off (see SwrProvider). The shared course routes are
 // additionally edge-cached (see lib/cache.ts), so even a revalidation usually never hits a function.

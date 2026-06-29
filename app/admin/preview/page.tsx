@@ -1,5 +1,18 @@
+interface PreviewTab {
+  headers: string[]
+  row_count: number
+  sample: string[][]
+  parsed_count: number
+  parsed_sample: unknown[]
+}
+interface PreviewData {
+  fetched_at: string
+  sheet1: PreviewTab
+  sheet2: PreviewTab
+}
+
 export default async function AdminPreviewPage() {
-  let data: Record<string, unknown> | null = null
+  let data: PreviewData | null = null
   let error: string | null = null
 
   try {
@@ -24,7 +37,7 @@ export default async function AdminPreviewPage() {
   return (
     <div style={{ fontFamily: 'monospace', maxWidth: 900, margin: '40px auto', padding: 20, background: '#0f0f0f', color: '#e0e0e0', minHeight: '100vh' }}>
       <h1 style={{ color: '#6366f1' }}>📊 Sheet Preview</h1>
-      <p style={{ color: '#888' }}>Fetched: {data ? String((data as any).fetched_at) : '—'}</p>
+      <p style={{ color: '#888' }}>Fetched: {data?.fetched_at ?? '—'}</p>
 
       {error && (
         <div style={{ background: '#3a0000', border: '1px solid #f00', padding: 16, borderRadius: 8, marginBottom: 16 }}>
@@ -39,7 +52,7 @@ export default async function AdminPreviewPage() {
       {data && (
         <>
           {(['sheet1', 'sheet2'] as const).map((tab) => {
-            const t = (data as any)[tab]
+            const t = data![tab]
             return (
               <div key={tab} style={{ marginBottom: 32 }}>
                 <h2 style={{ color: '#22c55e' }}>{tab === 'sheet1' ? 'Term IV Schedule' : 'Course Details'}</h2>

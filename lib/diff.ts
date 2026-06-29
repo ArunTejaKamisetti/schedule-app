@@ -148,7 +148,6 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
       const rm = removeLeft[idx]
       removeLeft.splice(idx, 1)
       const timeChanged = rm.start_time !== add.start_time
-      const roomChanged = rm.sheet_tab !== add.sheet_tab
       const fromLbl = `${rm.start_time} ${rm.room || ''}`.trim()
       const toLbl = `${add.start_time} ${add.room || ''}`.trim()
       const note = `Moved from ${fromLbl} → ${toLbl}`
@@ -161,8 +160,6 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
         course_name: add.course_name,
         note,
       })
-      // suppress unused-var lint intent
-      void roomChanged
     } else {
       tag(add, 'added')
       added.push(add)

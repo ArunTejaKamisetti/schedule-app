@@ -9,7 +9,6 @@ import { useUserSessions, useCommonEvents, useAttendance, useNotes } from '@/lib
 import { Skeleton } from '@/components/ui/skeleton'
 import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
-import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal, type DayMenu } from '@/lib/mess'
 import { BUS, BUS_NOTE, BUS_STOPS, type BusTrip } from '@/lib/bus'
@@ -461,8 +460,12 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
 function BusView() {
   const { bus, busStops, busNote } = useBusMess()
   const [from, setFrom] = useState('All')
-  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
-  const nowMin = ist.getUTCHours() * 60 + ist.getUTCMinutes()
+  // Snapshot "now" (IST) once when the tab mounts — reading the clock during render is impure and
+  // the next-bus highlight only needs the time at open. Computed in a state initializer (runs once).
+  const [nowMin] = useState(() => {
+    const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+    return ist.getUTCHours() * 60 + ist.getUTCMinutes()
+  })
 
   const trips = from === 'All' ? bus : bus.filter((t) => t.from === from)
   const nextIdx = trips.findIndex((t) => t.min >= nowMin)

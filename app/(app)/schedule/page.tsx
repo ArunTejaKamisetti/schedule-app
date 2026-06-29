@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, createContext, useContext } from 'react'
+import { useState, useEffect, useMemo, createContext, useContext } from 'react'
 import { CalendarRange, Sheet as SheetIcon, MapPin, User, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight, Check, X, StickyNote, Clock } from 'lucide-react'
 import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
@@ -11,8 +11,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { CANONICAL_SLOTS, SLOT_END } from '@/lib/free-time'
 import type { Course } from '@/lib/types'
-
-const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
 
 // Avoids threading attendance/notes/open through every nested grid component.
 const DetailCtx = createContext<{
@@ -54,6 +52,13 @@ export default function SchedulePage() {
   const [selectedDate, setSelectedDate] = useState(todayISO)
   const [selected, setSelected] = useState<Course | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  // The "Sheet" button opens the admin-configured source sheet for THIS user's year (same resolution
+  // as Settings → View Original Sheet). No hardcoded sheet id — it follows the pasted term link.
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!userId) return
+    fetch('/api/source-sheet').then((r) => r.json()).then((d) => setSheetUrl(d?.url ?? null)).catch(() => {})
+  }, [userId])
 
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => localISO(addDays(parseISO(weekStart), i))),
@@ -89,7 +94,7 @@ export default function SchedulePage() {
     return map
   }, [visible, weekDates])
 
-  function openSheet() { window.open(`https://docs.google.com/spreadsheets/d/${SHEET_ID}`, '_blank') }
+  function openSheet() { if (sheetUrl) window.open(sheetUrl, '_blank') }
   function shiftWeek(delta: number) { setWeekStart(localISO(addDays(parseISO(weekStart), delta * 7))) }
 
   const monthLabel = `${format(parseISO(weekDates[0]), 'MMM d')} – ${format(parseISO(weekDates[6]), 'MMM d')}`
@@ -103,8 +108,9 @@ export default function SchedulePage() {
             <h1 className="text-xl font-bold text-foreground">Schedule</h1>
           </div>
           <button
-            onClick={openSheet} title="Open the official Google Sheet to cross-check"
-            className="flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 px-2.5 py-1.5 rounded-lg"
+            onClick={openSheet} disabled={!sheetUrl}
+            title={sheetUrl ? 'Open the official Google Sheet to cross-check' : 'No source sheet configured yet'}
+            className="flex items-center gap-1.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900 px-2.5 py-1.5 rounded-lg disabled:opacity-50"
           >
             <SheetIcon size={13} /> Sheet
           </button>
@@ -179,7 +185,7 @@ export default function SchedulePage() {
             )}
 
             <div>
-              <p className="text-xs font-semibold text-muted-foreground mb-1.5">Reminder note <span className="font-normal">(you'll get a push at 8 PM the day before)</span></p>
+              <p className="text-xs font-semibold text-muted-foreground mb-1.5">Reminder note <span className="font-normal">(you&apos;ll get a push at 8 PM the day before)</span></p>
               <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3} maxLength={500}
                 placeholder="e.g. Bring submission, quiz today…"
                 className="w-full text-sm rounded-lg border border-border bg-muted/50 p-2 outline-none focus:ring-2 focus:ring-indigo-300" />

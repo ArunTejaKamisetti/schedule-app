@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Sparkles, Search, CalendarClock } from 'lucide-react'
+import { Users, Copy, UserPlus, Trash2, ArrowRight, Check, Search, CalendarClock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,7 +10,6 @@ import { FreeTimeDialog } from '@/components/free-time-dialog'
 import { useSession } from '@/components/session-provider'
 import { useFriends } from '@/lib/hooks'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
 import type { User } from '@/lib/types'
 import Link from 'next/link'
 
@@ -20,13 +19,11 @@ export default function FriendsPage() {
   const [addCode, setAddCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [nameDraft, setNameDraft] = useState('')
-  const [savedName, setSavedName] = useState('')
-  const [savingName, setSavingName] = useState(false)
   const [friendSearch, setFriendSearch] = useState('')
   const [freeTimeOpen, setFreeTimeOpen] = useState(false)
 
-  const myName = savedName || user?.display_name || ''
+  // Your display name is auto-filled from your college email on first sign-in (no manual editing).
+  const myName = user?.display_name || ''
 
   // Accepted friends, named first then "Anonymous" — derived from the shared SWR cache.
   const friends = useMemo(() => {
@@ -49,19 +46,6 @@ export default function FriendsPage() {
       (f.friend?.share_code ?? '').toLowerCase().includes(q)
     )
   }, [friends, friendSearch])
-
-  async function saveName() {
-    const name = nameDraft.trim()
-    if (!name || !userId) return
-    setSavingName(true)
-    await fetch('/api/user/name', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, name }),
-    }).catch(() => {})
-    setSavedName(name)
-    setSavingName(false)
-    toast.success(`Hi ${name}! Friends will now see your name.`)
-  }
 
   function copyCode() {
     navigator.clipboard.writeText(shareCode)
@@ -111,28 +95,10 @@ export default function FriendsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
-        {/* Your name — friends see this instead of "Anonymous". Optional but encouraged. */}
-        {!myName ? (
-          <div className="rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/50 dark:to-violet-950/40 p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles size={16} className="text-indigo-600 dark:text-indigo-400" />
-              <p className="text-sm font-bold text-foreground">What should friends call you?</p>
-            </div>
-            <p className="text-xs text-muted-foreground mb-3">Right now you show up as <b className="text-foreground">“Anonymous”</b> on your friends&apos; lists. Add your name so they recognise you. (Optional)</p>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Your name…"
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveName()}
-                className="text-sm bg-card"
-              />
-              <Button onClick={saveName} disabled={!nameDraft.trim() || savingName} size="sm">Save</Button>
-            </div>
-          </div>
-        ) : (
+        {/* Your name is taken from your college email automatically — friends see it on their list. */}
+        {myName && (
           <p className="text-xs text-muted-foreground -mb-2">
-            Friends see you as <b className="text-foreground">{myName}</b> · change it in Settings
+            Friends see you as <b className="text-foreground">{myName}</b>
           </p>
         )}
 
@@ -216,7 +182,6 @@ export default function FriendsPage() {
                 <FriendRow
                   key={f.friend_id}
                   friend={f.friend}
-                  userId={userId}
                   onRemove={() => removeFriend(f.friend_id)}
                 />
               ))}
@@ -230,7 +195,7 @@ export default function FriendsPage() {
   )
 }
 
-function FriendRow({ friend, userId, onRemove }: { friend: User; userId: string; onRemove: () => void }) {
+function FriendRow({ friend, onRemove }: { friend: User; onRemove: () => void }) {
   const initials = (friend.display_name ?? friend.share_code ?? '??').slice(0, 2).toUpperCase()
 
   return (

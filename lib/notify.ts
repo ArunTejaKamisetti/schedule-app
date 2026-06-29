@@ -68,7 +68,8 @@ export async function notifyAffectedUsers(changes: CourseChange[], year: 1 | 2 =
       .select('user_id, course_code, users(id, push_subscription, notify_cancelled, notify_rescheduled, notify_room)')
       .in('course_code', affectedCodes)
     for (const enrollment of enrolled ?? []) {
-      const row = enrollment as { course_code: string; users: Recipient | null }
+      // Supabase types a to-one join as an array; at runtime `users` is the single related row.
+      const row = enrollment as unknown as { course_code: string; users: Recipient | null }
       const user = row.users
       if (!user) continue
       const code = row.course_code

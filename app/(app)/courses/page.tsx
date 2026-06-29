@@ -29,13 +29,8 @@ interface CourseStat {
   total: number; held: number; present: number; absent: number; left: number; expected: number
 }
 
-// Every 1st-year section (A–H plus the two specialisations). Inlined here so the client bundle
-// doesn't pull in sheets-config (which reads server-only env). "Available" sections — those with
-// a timetable loaded — come from /api/courses?year1sections=1.
-const YEAR1_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'LSM', 'FIN'] as const
-
-// 1st-year selection is built but not yet ready for students — keep the tab visible but
-// unclickable (Work-in-Progress) until the remaining logic lands. Flip to true to re-enable.
+// Admin can browse either year via the year switch; students only ever see their own courses, so
+// the switch (and this flag) are admin-only now.
 const YEAR1_ENABLED = false
 
 // Enrollment is roster-driven: the admin uploads each student's section / electives, so students
@@ -63,7 +58,9 @@ export default function CoursesPage() {
   // Shared, deduped per-user data (see lib/hooks.ts). Catalog stays a plain fetch below — it's the
   // shared, edge-cached route and varies by admin/year.
   const { codes: serverCodes, rows: sessionRows, mutate: mutateSessions } = useUserSessions(userId)
-  const { summary } = useAttendanceStats(userId, !editing)
+  // The signed-in user's own courses + attendance stats, resolved from their sessions (section for
+  // 1st-years, electives for 2nd-years) — so the "My Courses" tracker works the same for every year.
+  const { summary, isLoading: loadingStats } = useAttendanceStats(userId, !editing)
 
   useEffect(() => {
     // Catalog = one representative row per course (complete, no 1000-row cap). Students always see
@@ -201,27 +198,23 @@ export default function CoursesPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-10 bg-card border-b border-border px-4 pt-12 pb-3 shadow-sm">
-        {/* Year switch — 2nd-year electives vs 1st-year section timetable. */}
-        <div className="flex gap-1 mb-3 bg-muted rounded-xl p-1">
-          {([2, 1] as const).map((y) => {
-            const disabled = y === 1 && !YEAR1_ENABLED && !isAdmin
-            return (
+        {/* Year switch — admin only (students just see their own courses). */}
+        {isAdmin && (
+          <div className="flex gap-1 mb-3 bg-muted rounded-xl p-1">
+            {([2, 1] as const).map((y) => (
               <button
                 key={y}
-                onClick={() => { if (disabled) return; setYearTab(y); setYearTabDecided(true) }}
-                disabled={disabled}
-                title={disabled ? 'Work in Progress' : undefined}
+                onClick={() => { setYearTab(y); setYearTabDecided(true) }}
                 className={cn(
                   'flex-1 text-sm font-semibold py-1.5 rounded-lg transition-colors',
-                  yearTab === y ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground',
-                  disabled && 'opacity-50 cursor-not-allowed'
+                  yearTab === y ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'
                 )}
               >
                 {y === 2 ? '2nd Year' : '1st Year'}
               </button>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        )}
 
         {isAdmin ? (
           <div className="flex items-center gap-2">
@@ -229,7 +222,7 @@ export default function CoursesPage() {
             <h1 className="text-xl font-bold text-foreground">All Courses · {yearTab === 1 ? '1st' : '2nd'} Year</h1>
             <span className="ml-auto text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-full">Admin</span>
           </div>
-        ) : yearTab === 2 ? (
+        ) : (
           <>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -260,11 +253,6 @@ export default function CoursesPage() {
               </div>
             )}
           </>
-        ) : (
-          <div className="flex items-center gap-2">
-            <GraduationCap className="text-indigo-600 dark:text-indigo-400" size={22} />
-            <h1 className="text-xl font-bold text-foreground">My Section</h1>
-          </div>
         )}
       </div>
 
@@ -272,17 +260,17 @@ export default function CoursesPage() {
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <AdminCourseList byArea={byArea} loading={loading} />
         </div>
-      ) : yearTab === 1 ? (
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          <FirstYearPanel userId={userId} savedSection={user?.year === 1 ? user?.section ?? null : null} />
-        </div>
       ) : (
       <>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
-        {loading ? (
+        {!showPicker ? (
+          loadingStats ? (
+            Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
+          ) : (
+            <StaticList summary={summary} />
+          )
+        ) : loading ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
-        ) : !showPicker ? (
-          <StaticList groups={selectedGroups} summary={summary} />
         ) : byArea.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <BookOpen size={40} strokeWidth={1} />
@@ -403,142 +391,6 @@ function AdminCourseList({ byArea, loading }: { byArea: { area: string; groups: 
   )
 }
 
-// 1st-year tab: pick ONE section → that section's whole fixed timetable (read-only). Sections
-// without a loaded timetable show the "Ask Developer" prompt instead of saving an enrollment.
-function FirstYearPanel({ userId, savedSection }: { userId: string; savedSection: string | null }) {
-  const [available, setAvailable] = useState<string[] | null>(null) // sections with a timetable
-  const [selected, setSelected] = useState<string | null>(savedSection)
-  const [sectionCourses, setSectionCourses] = useState<CourseGroup[] | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    fetch('/api/courses?year1sections=1')
-      .then((r) => r.json())
-      .then((s: string[]) => setAvailable(Array.isArray(s) ? s : []))
-      .catch(() => setAvailable([]))
-  }, [])
-
-  // Load the chosen section's classes (only meaningful when it has data).
-  useEffect(() => {
-    if (!selected || !available?.includes(selected)) { setSectionCourses(null); return }
-    setSectionCourses(null)
-    fetch(`/api/courses?tab=${encodeURIComponent(selected)}`)
-      .then((r) => r.json())
-      .then((rows: Course[]) => {
-        const map = new Map<string, CourseGroup>()
-        for (const c of Array.isArray(rows) ? rows : []) {
-          if (c.is_common || map.has(c.course_code)) continue
-          map.set(c.course_code, {
-            code: c.course_code, name: c.course_name, area: c.area,
-            instructor: c.instructor, credits: c.credits, room: c.room, is_cancelled: c.is_cancelled,
-          })
-        }
-        setSectionCourses([...map.values()])
-      })
-      .catch(() => setSectionCourses([]))
-  }, [selected, available])
-
-  async function chooseSection(section: string) {
-    if (ROSTER_MANAGED) return // section comes from the admin roster — read-only
-    const hasData = available?.includes(section)
-    setSelected(section)
-    if (!hasData) return // unavailable → just show the prompt; don't save an enrollment
-    if (!userId) { toast.error('Session not ready, please wait.'); return }
-    setSaving(true)
-    try {
-      const res = await fetch('/api/user/enrollment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, year: 1, section }),
-      })
-      if (!res.ok) throw new Error()
-      toast.success(`Section ${section} selected`)
-    } catch {
-      toast.error('Could not save your section. Try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const selectedHasData = !!selected && !!available?.includes(selected)
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        {ROSTER_MANAGED
-          ? 'Your section is set from the official roster. Its full timetable is below.'
-          : 'Pick your section to load its full timetable. You can switch any time.'}
-      </p>
-
-      <div className="grid grid-cols-4 gap-2">
-        {YEAR1_SECTIONS.map((s) => {
-          const hasData = available?.includes(s)
-          const isSel = selected === s
-          return (
-            <button
-              key={s}
-              onClick={() => chooseSection(s)}
-              disabled={saving}
-              className={cn(
-                'h-12 rounded-xl border text-sm font-bold transition-colors disabled:opacity-50',
-                isSel
-                  ? 'border-indigo-500 bg-indigo-600 text-white shadow-sm'
-                  : hasData
-                    ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                    : 'border-border bg-card text-muted-foreground'
-              )}
-            >
-              {s}
-            </button>
-          )
-        })}
-      </div>
-      {available !== null && (
-        <p className="text-[11px] text-muted-foreground">
-          Highlighted sections have a timetable. Others aren&apos;t ready yet.
-        </p>
-      )}
-
-      {/* Chosen section */}
-      {selected && !selectedHasData ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
-          <GraduationCap size={40} strokeWidth={1} />
-          <p className="mt-3 text-sm font-medium text-foreground">Section {selected}</p>
-          <p className="mt-1 text-sm">Ask Developer to add your timetable.</p>
-        </div>
-      ) : selectedHasData ? (
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-foreground">Section {selected} · timetable</h2>
-            <a href="/schedule" className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">View schedule →</a>
-          </div>
-          {sectionCourses === null ? (
-            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)
-          ) : sectionCourses.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No classes found for this section.</p>
-          ) : (
-            sectionCourses.map((g) => (
-              <div key={g.code} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
-                  {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
-                </div>
-                <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {g.room && <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full"><MapPin size={10} />Class {g.room}</span>}
-                  {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground py-8 text-center">Select a section above to see its timetable.</p>
-      )}
-    </div>
-  )
-}
-
 function CourseCard({
   group,
   selected,
@@ -597,21 +449,27 @@ function CourseCard({
   )
 }
 
-// Read-only summary of the user's picked courses with attendance stats.
-function StaticList({ groups, summary }: { groups: CourseGroup[]; summary: CourseStat[] }) {
-  // Prefer the stats from the summary endpoint; fall back to catalog meta while it loads.
-  const byCode = new Map(summary.map((s) => [s.code, s]))
-  const items: CourseStat[] = groups.map((g) => byCode.get(g.code) ?? {
-    code: g.code, name: g.name, area: g.area, instructor: g.instructor, room: g.room, credits: g.credits,
-    total: 0, held: 0, present: 0, absent: 0, left: 0, expected: (parseInt(g.credits ?? '') || 0) * 8,
-  })
-  const ordered = items.sort((a, b) =>
+// Read-only summary of the signed-in user's courses with attendance stats. Driven by their resolved
+// sessions (`summary`): a 1st-year's section timetable or a 2nd-year's electives — so the attendance
+// tracker works identically for every year.
+function StaticList({ summary }: { summary: CourseStat[] }) {
+  const ordered = [...summary].sort((a, b) =>
     (AREA_ORDER.indexOf(a.area || 'Other') - AREA_ORDER.indexOf(b.area || 'Other')) || a.code.localeCompare(b.code)
   )
 
+  if (ordered.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+        <GraduationCap size={40} strokeWidth={1} />
+        <p className="mt-3 text-sm">No courses yet</p>
+        <p className="text-xs mt-1">Your classes appear here once your section / electives are loaded.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2.5">
-      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · mark attendance in Home/Schedule{ROSTER_MANAGED ? ' · set from the official roster' : <> · tap <b className="text-foreground">Edit</b> to change</>}</p>
+      <p className="text-xs text-muted-foreground">{ordered.length} course{ordered.length !== 1 ? 's' : ''} · mark attendance in Home/Schedule{ROSTER_MANAGED ? ' · set from the official roster' : <> · tap <b className="text-foreground">Edit</b> to change</>}</p>
       {ordered.map((s) => {
         const pct = s.held > 0 ? Math.round((s.present / s.held) * 100) : null
         const mismatch = s.expected > 0 && s.total > 0 && s.expected !== s.total

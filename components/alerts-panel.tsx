@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Bell, AlertTriangle, ArrowLeftRight, DoorOpen, PlusCircle, MinusCircle, CheckCheck, Trash2, X, Clock } from 'lucide-react'
+import { Bell, AlertTriangle, ArrowLeftRight, DoorOpen, PlusCircle, MinusCircle, CheckCheck, Trash2, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
@@ -48,11 +48,6 @@ const TYPE_CONFIG: Record<Notification['type'], {
     icon: <MinusCircle size={16} className="text-gray-500" />,
     bg: 'bg-gray-50', border: 'border-gray-200', badgeBg: 'bg-gray-100', badgeText: 'text-gray-600',
     label: 'REMOVED',
-  },
-  class_reminder: {
-    icon: <Clock size={16} className="text-indigo-500" />,
-    bg: 'bg-indigo-50', border: 'border-indigo-100', badgeBg: 'bg-indigo-100', badgeText: 'text-indigo-700',
-    label: 'CLASS SOON',
   },
 }
 

@@ -27,7 +27,8 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     const patch: Record<string, unknown> = { last_seen_at: new Date().toISOString() }
     if (normEmail && !existing.email) patch.email = normEmail
     // Backfill the default display name (email local-part) for accounts created before name
-    // defaulting — name editing is no longer offered, so a blank name would otherwise stick.
+    // defaulting, so they show a friendly name instead of a blank one until/unless the user sets
+    // their own on the Friends page.
     if (!existing.display_name && normEmail) patch.display_name = emailUsername(normEmail)
     await supabase.from('users').update(patch).eq('id', userId)
     return { ...existing, ...patch } as User
@@ -77,31 +78,4 @@ export async function getUserByShareCode(shareCode: string): Promise<User | null
     .eq('share_code', shareCode.toUpperCase())
     .single()
   return data as User | null
-}
-
-// Private code used only to import/restore a profile on another device.
-export async function getUserByImportCode(importCode: string): Promise<User | null> {
-  const supabase = createServiceClient()
-  const { data } = await supabase
-    .from('users')
-    .select('*')
-    .eq('import_code', importCode.toUpperCase())
-    .single()
-  return data as User | null
-}
-
-export async function updateDisplayName(userId: string, name: string): Promise<void> {
-  const supabase = createServiceClient()
-  await supabase.from('users').update({ display_name: name }).eq('id', userId)
-}
-
-export async function updatePushSubscription(
-  userId: string,
-  subscription: object | null
-): Promise<void> {
-  const supabase = createServiceClient()
-  await supabase
-    .from('users')
-    .update({ push_subscription: subscription })
-    .eq('id', userId)
 }
