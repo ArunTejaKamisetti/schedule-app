@@ -33,10 +33,36 @@ export async function previewDeparted(supabase: SB): Promise<DepartedPreview> {
   }
 }
 
-// Run the prune (DB-side guarded against an empty roster). Returns the number removed.
+// Run the prune (DB-side guarded — refuses unless BOTH years' rosters are present). Returns removed.
 export async function pruneDeparted(supabase: SB): Promise<number> {
   const { data, error } = await supabase.rpc('prune_departed_students')
   if (error) throw new Error(`Prune failed: ${error.message}`)
+  return (data as number) ?? 0
+}
+
+export interface InvalidPreview {
+  count: number
+  sample: { id: string; display_name: string | null }[]
+}
+
+// Email-less, non-admin accounts (migration 022) — leftover test/seed junk the roster prune can never
+// reach (departed_students skips NULL emails). Previewed + confirmed separately from the roster prune.
+export async function previewInvalid(supabase: SB): Promise<InvalidPreview> {
+  const head = { count: 'exact' as const, head: true }
+  const [invalid, sample] = await Promise.all([
+    supabase.from('invalid_users').select('*', head),
+    supabase.from('invalid_users').select('id, display_name').limit(10),
+  ])
+  return {
+    count: invalid.count ?? 0,
+    sample: (sample.data ?? []) as { id: string; display_name: string | null }[],
+  }
+}
+
+// Hard-remove the email-less accounts (cascade clears their data). Returns the number removed.
+export async function pruneInvalid(supabase: SB): Promise<number> {
+  const { data, error } = await supabase.rpc('prune_invalid_users')
+  if (error) throw new Error(`Invalid-account prune failed: ${error.message}`)
   return (data as number) ?? 0
 }
 
