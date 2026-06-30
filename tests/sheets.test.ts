@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSheetRows, getArea, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
-  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode, isYmhcVenue,
+  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode,
 } from '@/lib/sheets'
 import { buildSheet } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
@@ -294,30 +294,17 @@ describe('parseCourseDetails — Sheet-2 enrichment lookup', () => {
   })
 })
 
-describe('YMHC venue special-case (one-off admin data fix)', () => {
+describe('venue / multi-word schedule cells', () => {
   it('cleanCode collapses an embedded newline into one line', () => {
     expect(cleanCode('YMHC\nMN Common Room')).toBe('YMHC MN Common Room')
     expect(cleanCode('GT-A')).toBe('GT-A')
     expect(cleanCode('  ST   (FIN-Core) ')).toBe('ST (FIN-Core)')
   })
-  it('isYmhcVenue detects the venue-suffixed YMHC cell only', () => {
-    expect(isYmhcVenue('YMHC MN Common Room')).toBe(true)
-    expect(isYmhcVenue('YMHC\nMN Common Room')).toBe(true)
-    expect(isYmhcVenue('YMHC')).toBe(false)
-    expect(isYmhcVenue('GT-A')).toBe(false)
-  })
-  it('routes the venue cell (raw or clean) to YMHC details and HLAM', () => {
-    expect(getDetailAbbr('YMHC MN Common Room')).toBe('YMHC')   // enrich from Sheet-2 YMHC
-    expect(getDetailAbbr('YMHC\nMN Common Room')).toBe('YMHC')  // raw newline form too
-    expect(getArea('YMHC MN Common Room')).toBe('HLAM')
-    expect(getArea('YMHC\nMN Common Room')).toBe('HLAM')
-    expect(getArea('YMHC')).toBe('HLAM')                        // plain YMHC already HLAM
-  })
-  it('canonicalises a venue-override cell to its real code (so roster/enrolment match) and keeps the label', () => {
+  it('parser stores the cleaned SCHEDULE text as the code (alias/area resolution is configured per profile)', () => {
     const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', '', '', '']])
     const parsed = parseSheetRows(data.sheet1)[0]
-    expect(parsed.course_code).toBe('YMHC')                 // canonical → matches the roster code "YMHC"
-    expect(parsed.course_name).toBe('YMHC MN Common Room')  // the cell's own text kept for display
+    expect(parsed.course_code).toBe('YMHC MN Common Room')  // the schedule's own text, cleaned
+    expect(parsed.course_name).toBe('YMHC MN Common Room')
   })
 })
 

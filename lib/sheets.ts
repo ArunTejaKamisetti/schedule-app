@@ -3,7 +3,7 @@ import type { CellFormat, RawSheetData, SheetMerge } from './types'
 import type { SheetSource } from './sheets-config'
 import { getSheetsOAuthClient } from './google-auth'
 import {
-  DEFAULT_PROFILE, classifyBySwatches, matchOverride, qualifierArea, matchesKeyword,
+  DEFAULT_PROFILE, classifyBySwatches, qualifierArea, matchesKeyword,
   sectionHeaderRegex, divisionCodeRegex, type ColorRules, type InstitutionProfile,
 } from './institution-profile'
 
@@ -26,12 +26,19 @@ export function cleanCode(code: string): string {
   return (code || '').replace(/\s+/g, ' ').trim()
 }
 
-// Venue/edge-case cell: a cell whose text matches a configured override (e.g. the venue typed into
-// YMHC's schedule cell, "YMHC MN Common Room"). The override enriches it from a Course-Details abbr
-// while the caller keeps the cell's own label for display. Kept named `isYmhcVenue` for back-compat;
-// it now consults the profile's override list (default = the IIM-K YMHC rule).
-export function isYmhcVenue(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): boolean {
-  return matchOverride(code, profile.overrides) !== null
+// Normalise a code for case- and whitespace-insensitive comparison ("YMHC\nMN  Common Room" →
+// "YMHC MN COMMON ROOM"). Used by the alias matchers so a messy/multi-word cell still compares equal.
+function normCode(s: string): string {
+  return (s || '').toUpperCase().replace(/\s+/g, ' ').trim()
+}
+
+// Forward alias: a SCHEDULE code → its canonical (roster / Course-Details) code, matched on the WHOLE
+// code (case/whitespace-insensitive). Handles a messy venue cell ("YMHC MN Common Room" → "YMHC") and
+// a plain code ("RTM" → "RM"). Returns the code unchanged if no alias matches.
+function aliasForward(code: string, aliases: Record<string, string>): string {
+  const n = normCode(code)
+  for (const [k, v] of Object.entries(aliases)) if (normCode(k) === n) return v
+  return code
 }
 
 // Strip section suffix and program qualifiers to get the base abbreviation
@@ -58,11 +65,11 @@ function normAbbr(s: string): string {
 // known cross-sheet aliases — so "DS-A (LSM-Core)" → "DS(LSM-CORE)", "CV (FIN-Core)" →
 // "CV(FIN-CORE)", "GT-B" → "GT", "RTM" → "RM".
 export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
-  const ov = matchOverride(code, profile.overrides)
-  if (ov) return ov.detailAbbr // enrich from the override's Course-Details row (e.g. YMHC)
-  let key = normAbbr(code).replace(/-[A-C](?=\(|$)/g, '')
-  const base = key.split('(')[0]
   const aliases = profile.catalog.aliases
+  // Whole-cell alias first (e.g. "YMHC MN Common Room" → "YMHC"); then the usual section-strip +
+  // base-abbr alias (e.g. "RTM-A" → "RTM" → "RM").
+  let key = normAbbr(aliasForward(code, aliases)).replace(/-[A-C](?=\(|$)/g, '')
+  const base = key.split('(')[0]
   if (aliases[base]) key = aliases[base] + key.slice(base.length)
   return key
 }
@@ -84,19 +91,20 @@ export function aliasToScheduleCode(code: string, aliases: Record<string, string
 }
 
 export function getArea(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
-  // Honour an override's forced area whether `code` is still the raw cell text (contains the match)
-  // or has already been canonicalised to the override's detailAbbr (the parser rewrites it).
-  const ov = matchOverride(code, profile.overrides)
-  if (ov?.area) return ov.area
-  const canon = profile.overrides.find((o) => o.area && o.detailAbbr && o.detailAbbr === code)
-  if (canon?.area) return canon.area
   // Programme qualifiers take priority (Sheet-2 truth) — a FIN/LSM-core course must land
   // under FIN/LSM Core even if its base abbreviation also exists as a PGP elective area.
   const q = qualifierArea(code, profile.catalog.qualifiers)
   if (q) return q
-  const base = getBaseAbbr(code)
   const areaMap = profile.catalog.areaMap
+  // The schedule code's own base first (e.g. "RTM" → MM — RTM is in the map, RM is not).
+  const base = getBaseAbbr(code)
   if (areaMap[base]) return areaMap[base]
+  // Fallback for a code only resolvable via its alias (e.g. "YMHC MN Common Room" → "YMHC" → HLAM).
+  const canon = aliasForward(code, profile.catalog.aliases)
+  if (canon !== code) {
+    const baseC = getBaseAbbr(canon)
+    if (areaMap[baseC]) return areaMap[baseC]
+  }
   return 'Other'
 }
 
@@ -380,15 +388,13 @@ function parseScheduleMatrix(
     for (const s of sections) {
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
-      // Keep the SCHEDULE's own code as the stored/displayed code (the schedule is the source of
-      // truth for display). A venue/edge-case override is the one exception: it canonicalises the
-      // code to its real abbreviation (e.g. "YMHC MN Common Room" → "YMHC") while keeping the cell's
-      // text as the label. The roster's alternate spelling is mapped onto THIS code in lib/roster.
-      const ov = matchOverride(raw, profile.overrides)
+      // Store the SCHEDULE's own code (cleaned: newlines/whitespace collapsed, e.g.
+      // "YMHC\nMN Common Room" → "YMHC MN Common Room"). The schedule is the source of truth for
+      // display; the roster's alternate spelling is mapped onto this code in lib/roster via the
+      // catalog alias, and area/details resolve through the alias too.
+      const code = cleanCode(raw)
       results.push({
-        course_code: ov ? ov.detailAbbr : raw,
-        course_name: ov ? cleanCode(raw) : raw,
-        instructor: '',
+        course_code: code, course_name: code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
         is_common: false, event_kind: 'class',

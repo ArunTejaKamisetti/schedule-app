@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_PROFILE, classifyBySwatches, colorDistance, matchOverride, qualifierArea, matchesKeyword,
+  DEFAULT_PROFILE, classifyBySwatches, colorDistance, qualifierArea, matchesKeyword,
   sectionHeaderRegex, divisionCodeRegex, mergeProfile, rowsToPatch, sanitizeProfilePatch,
   type ColorRules, type InstitutionProfile,
 } from '@/lib/institution-profile'
@@ -61,20 +61,13 @@ describe('classifyColor — auto (default) vs custom mode', () => {
   })
 })
 
-// ── catalog: overrides / qualifiers / area resolution ────────────────────────────────────────────
+// ── catalog: qualifiers / area / alias resolution ────────────────────────────────────────────────
 
-describe('matchOverride + getArea/getDetailAbbr via profile', () => {
-  it('matches a venue override by contained text (raw or cleaned)', () => {
-    expect(matchOverride('YMHC MN Common Room', DEFAULT_PROFILE.overrides)?.detailAbbr).toBe('YMHC')
-    expect(matchOverride('YMHC\nMN Common Room', DEFAULT_PROFILE.overrides)?.area).toBe('HLAM')
-    expect(matchOverride('GT-A', DEFAULT_PROFILE.overrides)).toBeNull()
-  })
-
+describe('getArea/getDetailAbbr via profile', () => {
   it('resolves area from a CUSTOM catalog, not the IIM-K default', () => {
     const profile: InstitutionProfile = {
       ...DEFAULT_PROFILE,
       catalog: { areaMap: { XX: 'Marketing' }, aliases: {}, qualifiers: [] },
-      overrides: [],
     }
     expect(getArea('XX', profile)).toBe('Marketing')
     expect(getArea('GT', profile)).toBe('Other') // IIM-K's GT→ECO no longer applies
@@ -84,7 +77,6 @@ describe('matchOverride + getArea/getDetailAbbr via profile', () => {
     const profile: InstitutionProfile = {
       ...DEFAULT_PROFILE,
       catalog: { areaMap: {}, aliases: { ZZZ: 'QQ' }, qualifiers: [] },
-      overrides: [],
     }
     expect(getDetailAbbr('ZZZ', profile)).toBe('QQ')
   })
@@ -194,29 +186,32 @@ describe('schedule keeps its own code; roster maps onto it', () => {
   })
 })
 
-describe('venue/edge-case override — canonicalises the code so roster/enrolment match', () => {
-  it('rewrites a matching cell to its real course code, keeping the cell text as the label', () => {
-    const profile: InstitutionProfile = {
-      ...DEFAULT_PROFILE,
-      overrides: [{ match: 'lab block', detailAbbr: 'CHEM', area: 'Sciences' }],
-      catalog: { areaMap: {}, aliases: {}, qualifiers: [] }, // CHEM intentionally NOT in the area map
-    }
+describe('multi-word venue cell via a whole-cell alias (replaces the old override)', () => {
+  // Admin maps the messy schedule cell to the real course code: "YMHC MN Common Room" → "YMHC".
+  const profile: InstitutionProfile = {
+    ...DEFAULT_PROFILE,
+    catalog: { ...DEFAULT_PROFILE.catalog, aliases: { ...DEFAULT_PROFILE.catalog.aliases, 'YMHC MN Common Room': 'YMHC' } },
+  }
+
+  it('schedule keeps & shows the venue text, but area/details resolve via the alias', () => {
     const rows = [
       ['DATE', 'TIME', 'PGP', 'PGP'],
       ['', '', 'D1', 'D2'],
-      ['Tuesday, 9 June, 2026', '09.15-10.30', 'CHEM\nLab Block 4', 'GT-A'],
+      ['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', 'GT-A'],
     ]
     const parsed = parseSheetRows(rows, { profile })
-    const chem = parsed.find((p) => p.course_code === 'CHEM')!
-    expect(chem).toBeTruthy()                       // canonicalised → would match a roster code "CHEM"
-    expect(chem.course_name).toBe('CHEM Lab Block 4') // cell label kept
-    // Forced area survives canonicalisation even though CHEM isn't in the (empty) area map.
-    expect(getArea(chem.course_code, profile)).toBe('Sciences')
+    const ymhc = parsed.find((p) => p.course_code === 'YMHC MN Common Room')!
+    expect(ymhc).toBeTruthy()                                  // schedule text kept (cleaned), not "YMHC"
+    expect(getArea(ymhc.course_code, profile)).toBe('HLAM')    // resolved via alias → YMHC → HLAM
+    expect(getDetailAbbr(ymhc.course_code, profile)).toBe('YMHC') // details lookup via alias
   })
 
-  it('default YMHC override: canonical code "YMHC" still resolves to HLAM', () => {
-    expect(getArea('YMHC', DEFAULT_PROFILE)).toBe('HLAM')          // via the override forced area
-    expect(getArea('YMHC MN Common Room', DEFAULT_PROFILE)).toBe('HLAM') // raw text path too
+  it('a roster "YMHC" maps onto the schedule cell text, so they match', () => {
+    expect(aliasToScheduleCode('YMHC', profile.catalog.aliases)).toBe('YMHC MN Common Room')
+  })
+
+  it('case/whitespace-insensitive: the alias still resolves a differently-spaced cell', () => {
+    expect(getArea('YMHC   MN  Common Room', profile)).toBe('HLAM')
   })
 })
 
@@ -249,9 +244,10 @@ describe('mergeProfile + rowsToPatch', () => {
     expect(merged.colors.cancelled).toEqual(['#abcdef'])
     expect(merged.catalog.areaMap).toBe(DEFAULT_PROFILE.catalog.areaMap) // untouched concern kept
   })
-  it('replaces the overrides array wholesale when provided', () => {
-    const merged = mergeProfile(DEFAULT_PROFILE, { overrides: [] })
-    expect(merged.overrides).toEqual([])
+  it('replaces a saved catalog concern, keeping other concerns at their defaults', () => {
+    const merged = mergeProfile(DEFAULT_PROFILE, { catalog: { areaMap: {}, aliases: { A: 'B' }, qualifiers: [] } })
+    expect(merged.catalog.aliases).toEqual({ A: 'B' })
+    expect(merged.colors).toEqual(DEFAULT_PROFILE.colors)
   })
 })
 
@@ -274,9 +270,9 @@ describe('sanitizeProfilePatch — coerces + rejects bad input', () => {
     expect(patch.sections?.divisionCodePattern).toBe(DEFAULT_PROFILE.sections.divisionCodePattern)
     expect(patch.sections?.sectionLabels).toEqual(['A', 'B']) // upper-cased
   })
-  it('keeps only well-formed overrides', () => {
-    const patch = sanitizeProfilePatch({ overrides: [{ match: 'common room', detailAbbr: 'YMHC', area: 'HLAM' }, { match: '', detailAbbr: 'X' }] })
-    expect(patch.overrides).toEqual([{ match: 'common room', detailAbbr: 'YMHC', area: 'HLAM' }])
+  it('keeps a whole-cell alias (e.g. a venue) in the alias map', () => {
+    const patch = sanitizeProfilePatch({ catalog: { areaMap: {}, aliases: { 'YMHC MN Common Room': 'YMHC', '': 'X' }, qualifiers: [] } })
+    expect(patch.catalog?.aliases).toEqual({ 'YMHC MN Common Room': 'YMHC' })
   })
   it('ignores unknown top-level keys', () => {
     expect(sanitizeProfilePatch({ bogus: 1, colors: { mode: 'auto' } })).toEqual({ colors: { mode: 'auto', cancelled: [], added: [], event: [], tolerance: DEFAULT_PROFILE.colors.tolerance } })

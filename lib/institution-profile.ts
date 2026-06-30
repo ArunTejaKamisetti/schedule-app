@@ -39,7 +39,12 @@ export interface QualifierRule {
 
 export interface CatalogConfig {
   areaMap: Record<string, string>   // base abbreviation → area ('GT' → 'ECO')
-  aliases: Record<string, string>   // schedule base abbr → Course-Details base abbr ('RTM' → 'RM')
+  // Schedule code → its canonical (roster / Course-Details) code. Handles two cases with one rule:
+  //   • a base-abbr alias: 'RTM' → 'RM' (also covers 'RTM-A' → 'RM-A')
+  //   • a whole-cell alias for a messy venue/edge cell: 'YMHC MN Common Room' → 'YMHC'
+  // The schedule's code stays as written (display); the roster's form is mapped onto it for matching,
+  // and area/details are resolved through it. Matching is case- and whitespace-insensitive.
+  aliases: Record<string, string>
   qualifiers: QualifierRule[]        // programme qualifiers, checked IN ORDER (Core before plain)
 }
 
@@ -47,12 +52,6 @@ export interface SectionConfig {
   sectionLabels: string[]       // 1st-year section letters, e.g. ['A'..'H']
   sectionHeaderPrefix: string   // the word before the section letter in the header, e.g. 'Sec'
   divisionCodePattern: string   // regex (source) identifying a 2nd-year division code, e.g. D1/E2
-}
-
-export interface VenueOverride {
-  match: string         // when the (cleaned) cell text CONTAINS this (case-insensitive)…
-  detailAbbr: string    // …enrich it from this Course-Details abbreviation…
-  area?: string         // …and (optionally) force this area. Display keeps the cell's own label.
 }
 
 export interface KeywordConfig {
@@ -64,7 +63,6 @@ export interface InstitutionProfile {
   colors: ColorRules
   catalog: CatalogConfig
   sections: SectionConfig
-  overrides: VenueOverride[]
   keywords: KeywordConfig
 }
 
@@ -115,11 +113,6 @@ export const DEFAULT_PROFILE: InstitutionProfile = {
     // section header (e.g. PGPFIN06), which is how the section-header row is located.
     divisionCodePattern: '^[A-Z]\\d+$',
   },
-  overrides: [
-    // One-off admin data issue: the venue was typed into YMHC's schedule cell. Enrich as the HLAM
-    // elective YMHC while the caller keeps the admin's "…Common Room" label for display.
-    { match: 'common room', detailAbbr: 'YMHC', area: 'HLAM' },
-  ],
   keywords: {
     skipWords: ['lunch', 'break', 'registration', 'holiday', 'recess', 'tea', 'meeting'],
     eventWords: ['exam', 'mid term', 'end term', 'quiz', 'viva'],
@@ -133,16 +126,6 @@ export const DEFAULT_PROFILE: InstitutionProfile = {
 // that merely contains the letters "fin" (the paren stays significant).
 function normForMatch(s: string): string {
   return (s || '').toLowerCase().replace(/[\s-]+/g, '')
-}
-
-// First override whose `match` substring appears in the cleaned cell text, else null.
-export function matchOverride(code: string, overrides: VenueOverride[]): VenueOverride | null {
-  const hay = (code || '').replace(/\s+/g, ' ').trim().toLowerCase()
-  for (const o of overrides) {
-    const needle = (o.match || '').trim().toLowerCase()
-    if (needle && hay.includes(needle)) return o
-  }
-  return null
 }
 
 // The area implied by a programme qualifier (checked in order), or null if none applies.
@@ -239,22 +222,20 @@ export type ProfilePatch = Partial<{
   colors: Partial<ColorRules>
   catalog: Partial<CatalogConfig>
   sections: Partial<SectionConfig>
-  overrides: VenueOverride[]
   keywords: Partial<KeywordConfig>
 }>
 
 // The persistable concerns (= top-level profile keys = `institution_profile.key` values).
-export const PROFILE_KEYS = ['colors', 'catalog', 'sections', 'overrides', 'keywords'] as const
+export const PROFILE_KEYS = ['colors', 'catalog', 'sections', 'keywords'] as const
 export type ProfileKey = (typeof PROFILE_KEYS)[number]
 
 // Merge admin overrides (per concern) over the defaults. Object concerns are field-merged so a
-// partial row still works; `overrides` is an array, so it's replaced wholesale when present.
+// partial row still works.
 export function mergeProfile(base: InstitutionProfile, patch: ProfilePatch): InstitutionProfile {
   return {
     colors: { ...base.colors, ...(patch.colors ?? {}) },
     catalog: { ...base.catalog, ...(patch.catalog ?? {}) },
     sections: { ...base.sections, ...(patch.sections ?? {}) },
-    overrides: Array.isArray(patch.overrides) ? patch.overrides : base.overrides,
     keywords: { ...base.keywords, ...(patch.keywords ?? {}) },
   }
 }
@@ -336,18 +317,6 @@ export function sanitizeProfilePatch(input: unknown): ProfilePatch {
       sectionHeaderPrefix: typeof s.sectionHeaderPrefix === 'string' ? s.sectionHeaderPrefix.trim() : DEFAULT_PROFILE.sections.sectionHeaderPrefix,
       divisionCodePattern: divisionCodePattern || DEFAULT_PROFILE.sections.divisionCodePattern,
     }
-  }
-
-  if (Array.isArray(input.overrides)) {
-    patch.overrides = input.overrides
-      .filter(isRecord)
-      .map((o) => {
-        const out: VenueOverride = { match: String(o.match ?? '').trim(), detailAbbr: String(o.detailAbbr ?? '').trim() }
-        const area = String(o.area ?? '').trim()
-        if (area) out.area = area
-        return out
-      })
-      .filter((o) => o.match && o.detailAbbr)
   }
 
   if (isRecord(input.keywords)) {

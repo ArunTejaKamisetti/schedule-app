@@ -3,13 +3,13 @@
 import { useEffect, useState } from 'react'
 import {
   classifyBySwatches, type InstitutionProfile, type ColorRules, type CatalogConfig,
-  type SectionConfig, type VenueOverride, type KeywordConfig, type QualifierRule,
+  type SectionConfig, type KeywordConfig, type QualifierRule,
 } from '@/lib/institution-profile'
 
-type Tab = 'colors' | 'catalog' | 'sections' | 'overrides'
+type Tab = 'colors' | 'catalog' | 'sections'
 
 // Institution Profile — the per-deployment vocabulary of change-tracking (colours, catalog, sections,
-// venue overrides, keywords). The change-tracking LOGIC is generic; this is only what differs between
+// keywords). The change-tracking LOGIC is generic; this is only what differs between
 // institutions. Defaults = IIM-K; an admin edits any concern here with NO redeploy. Colours first.
 export default function InstitutionProfilePage() {
   const [profile, setProfile] = useState<InstitutionProfile | null>(null)
@@ -54,7 +54,7 @@ export default function InstitutionProfilePage() {
       )}
 
       <div style={{ display: 'flex', gap: 6, marginTop: 20, flexWrap: 'wrap', borderBottom: '1px solid #e5e7eb' }}>
-        {(['colors', 'catalog', 'sections', 'overrides'] as Tab[]).map((t) => (
+        {(['colors', 'catalog', 'sections'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -64,7 +64,7 @@ export default function InstitutionProfilePage() {
               borderBottom: tab === t ? '2px solid #4f46e5' : '2px solid transparent', marginBottom: -1,
             }}
           >
-            {t === 'colors' ? 'Colours' : t === 'catalog' ? 'Catalog' : t === 'sections' ? 'Sections' : 'Overrides'}
+            {t === 'colors' ? 'Colours' : t === 'catalog' ? 'Catalog' : 'Sections'}
           </button>
         ))}
       </div>
@@ -82,7 +82,6 @@ export default function InstitutionProfilePage() {
               onSave={() => save({ sections: profile.sections, keywords: profile.keywords })}
             />
           )}
-          {tab === 'overrides' && <OverridesTab value={profile.overrides} onChange={(overrides) => patch({ overrides })} onSave={() => save({ overrides: profile.overrides })} />}
         </div>
       )}
     </main>
@@ -199,14 +198,19 @@ function CatalogTab({ value, onChange, onSave }: { value: CatalogConfig; onChang
       </div>
 
       <div style={card}>
-        <span style={labelStyle}>Course aliases — alternate code → canonical code</span>
+        <span style={labelStyle}>Course aliases — schedule code → roster / Course-Details code</span>
         <p style={hint}>
-          When the same course is written differently in the schedule vs the roster / Course Details
-          (e.g. schedule &quot;RTM&quot;, roster &quot;RM&quot;). Both are normalised to the right-hand
-          code so the class shows for enrolled students. Section suffixes are kept (RTM-A → RM-A).
+          When the same course is written differently in the schedule vs the roster (or Course Details).
+          The schedule&apos;s text is what&apos;s shown; the roster&apos;s form is matched onto it, and area /
+          details resolve through the alias. Matching ignores case and extra spaces.
+        </p>
+        <p style={hint}>
+          • Different abbreviation: schedule <code>RTM</code> → roster <code>RM</code> (section suffixes
+          kept, e.g. RTM-A → RM-A). &nbsp;• Messy venue cell: schedule
+          <code> YMHC MN Common Room</code> → <code>YMHC</code> (so a student enrolled in YMHC sees it).
         </p>
         <PairEditor
-          pairs={value.aliases} keyLabel="Alternate (RTM)" valLabel="Canonical (RM)"
+          pairs={value.aliases} keyLabel="Schedule (RTM / YMHC MN Common Room)" valLabel="Roster (RM / YMHC)"
           onChange={(aliases) => onChange({ ...value, aliases })}
         />
       </div>
@@ -259,44 +263,6 @@ function SectionsTab({
         <CommaInput value={keywords.eventWords} onChange={(eventWords) => onChange(sections, { ...keywords, eventWords })} placeholder="exam, mid term, viva…" />
       </div>
 
-      <SaveBar onSave={onSave} />
-    </>
-  )
-}
-
-// ── Overrides tab ────────────────────────────────────────────────────────────────────────────────
-
-function OverridesTab({ value, onChange, onSave }: { value: VenueOverride[]; onChange: (v: VenueOverride[]) => void; onSave: () => void }) {
-  const set = (i: number, over: Partial<VenueOverride>) => onChange(value.map((o, j) => (j === i ? { ...o, ...over } : o)))
-  return (
-    <>
-      <div style={card}>
-        <span style={labelStyle}>Venue / edge-case overrides</span>
-        <p style={hint}>
-          For cells that aren&apos;t a plain course code. When a cell&apos;s text contains your{' '}
-          <b>match text</b>, that session is treated as the <b>course code</b> you give here — so it shows
-          up for everyone enrolled in that course (roster, enrolment and Course Details all match by the
-          real code). The cell&apos;s own text is kept as the label.
-        </p>
-        <p style={hint}>
-          Example: a cell typed as &quot;YMHC — MN Common Room&quot;. Match text <code>common room</code>,
-          course code <code>YMHC</code>, area <code>HLAM</code>. Anyone enrolled in YMHC now sees it.
-        </p>
-        <p style={{ ...hint, color: '#64748b' }}>
-          Match text is a simple &quot;contains&quot; check (case-insensitive). After saving, run a sync
-          for it to take effect on the schedule.
-        </p>
-        {value.length === 0 && <p style={{ color: '#94a3b8', fontSize: 13 }}>No overrides.</p>}
-        {value.map((o, i) => (
-          <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-            <input value={o.match} onChange={(e) => set(i, { match: e.target.value })} placeholder="match text (e.g. common room)" style={{ ...inputStyle, flex: 2, minWidth: 180 }} />
-            <input value={o.detailAbbr} onChange={(e) => set(i, { detailAbbr: e.target.value })} placeholder="course code (e.g. YMHC)" style={{ ...inputStyle, flex: 1, minWidth: 130 }} />
-            <input value={o.area ?? ''} onChange={(e) => set(i, { area: e.target.value })} placeholder="area (optional)" style={{ ...inputStyle, flex: 1, minWidth: 110 }} />
-            <button onClick={() => onChange(value.filter((_, j) => j !== i))} style={delBtn}>Remove</button>
-          </div>
-        ))}
-        <button onClick={() => onChange([...value, { match: '', detailAbbr: '', area: '' }])} style={smallBtn}>+ Add override</button>
-      </div>
       <SaveBar onSave={onSave} />
     </>
   )
