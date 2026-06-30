@@ -68,10 +68,13 @@ export default function TodayPage() {
   const [importing, setImporting] = useState(false)
   const [alertsOpen, setAlertsOpen] = useState(false)
 
-  // Push notifications deep-link here with ?alerts=1 → open the panel.
+  // Push notifications deep-link here with ?alerts=1 → open the panel. Client-only: it reads and
+  // rewrites the URL, so it must run post-mount (deriving it during render would mismatch SSR). The
+  // panel-open is a deliberate one-shot, not a render-sync loop.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('alerts')) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot deep-link open on mount
       setAlertsOpen(true)
       window.history.replaceState({}, '', '/today')
     }
@@ -482,8 +485,12 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
 // ─── Bus schedule ─────────────────────────────────────────────────────────────
 function BusView() {
   const [from, setFrom] = useState('All')
-  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
-  const nowMin = ist.getUTCHours() * 60 + ist.getUTCMinutes()
+  // Current IST time as minutes-since-midnight, captured once when the tab opens — used to pick and
+  // scroll to the next bus. Reading the clock in a lazy initializer keeps render pure/idempotent.
+  const [nowMin] = useState(() => {
+    const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000)
+    return ist.getUTCHours() * 60 + ist.getUTCMinutes()
+  })
 
   const trips = from === 'All' ? BUS : BUS.filter((t) => t.from === from)
   const nextIdx = trips.findIndex((t) => t.min >= nowMin)
