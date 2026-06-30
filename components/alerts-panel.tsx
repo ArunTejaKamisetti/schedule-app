@@ -63,7 +63,7 @@ export function AlertsPanel({ open, onOpenChange }: { open: boolean; onOpenChang
 
   const load = useCallback(() => {
     if (!userId) return
-    fetch(`/api/notifications?userId=${userId}`)
+    fetch(`/api/notifications?userId=${userId}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((data: Notification[]) => { setNotifications(Array.isArray(data) ? data : []); setLoading(false) })
       .catch(() => setLoading(false))

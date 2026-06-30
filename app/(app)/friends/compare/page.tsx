@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, MapPin, CalendarDays } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
@@ -22,7 +22,9 @@ function CompareContent() {
   const { userId, user } = useSession()
   const params = useSearchParams()
   const friendId = params.get('friendId')
-  const [selectedDate, setSelectedDate] = useState('')
+  const [picked, setPicked] = useState<string | null>(null)
+  const railRef = useRef<HTMLDivElement>(null)
+  const didCenter = useRef(false)
 
   // Shared, deduped data — both schedules and the common events come straight from the SWR cache.
   const year = user?.year === 1 ? 1 : 2
@@ -43,12 +45,25 @@ function CompareContent() {
     return [...set].sort()
   }, [mine, theirs, common])
 
-  // Default to today if present, else the first date with data.
-  useEffect(() => {
-    if (selectedDate || dates.length === 0) return
+  // Selected day: a tapped date wins; otherwise default to today if it's in range, else the first
+  // day with data. Derived during render (not via a setState effect) so it's right on first paint.
+  const selectedDate = useMemo(() => {
+    if (picked) return picked
+    if (dates.length === 0) return ''
     const today = format(new Date(), 'yyyy-MM-dd')
-    setSelectedDate(dates.includes(today) ? today : dates[0])
-  }, [dates, selectedDate])
+    return dates.includes(today) ? today : dates[0]
+  }, [picked, dates])
+
+  // Center the default date in the horizontal strip on first paint — otherwise the strip stays
+  // scrolled to the start of the term and the user has to scroll to find today. Wait until the rail
+  // is actually mounted (i.e. not loading) so the button exists to scroll to.
+  useEffect(() => {
+    if (loading || !selectedDate || didCenter.current) return
+    const el = railRef.current?.querySelector(`[data-iso="${selectedDate}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' })
+    didCenter.current = true
+  }, [loading, selectedDate])
 
   // Common events (exams) belong to both people's day.
   const myDay = useMemo(
@@ -83,12 +98,12 @@ function CompareContent() {
   return (
     <div className="flex flex-col h-full">
       {/* Date strip */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border shrink-0">
+      <div ref={railRef} className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border shrink-0">
         {dates.map((iso) => {
           const active = iso === selectedDate
           const d = parseISO(iso)
           return (
-            <button key={iso} onClick={() => setSelectedDate(iso)}
+            <button key={iso} data-iso={iso} onClick={() => setPicked(iso)}
               className={cn('shrink-0 flex flex-col items-center px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors min-w-[46px]',
                 active ? 'bg-indigo-600 text-white' : 'bg-muted text-foreground')}>
               <span className="text-[10px]">{format(d, 'EEE').toUpperCase()}</span>

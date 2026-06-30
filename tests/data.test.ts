@@ -14,19 +14,14 @@ describe('MESS data', () => {
     }
   })
 
-  it('has the corrected lunch non-veg specials', () => {
-    expect(MESS.MON.lunch.special).toContain('Egg Curry')
-    expect(MESS.TUE.lunch.special).toContain('Fish Curry')
-    expect(MESS.WED.lunch.special).toContain('Egg Masala')
-    expect(MESS.THU.lunch.special).toContain('Fish Curry')
-    expect(MESS.FRI.lunch.special).toContain('Egg Roast')
-    expect(MESS.SAT.lunch.special).toContain('Fish Curry')
-    expect(MESS.SUN.lunch.special).toContain('Egg Curry')
-  })
-
-  it('does not double up Tue/Thu lunch with both fish and egg', () => {
-    expect(MESS.TUE.lunch.special).not.toContain('Egg Curry')
-    expect(MESS.THU.lunch.special).not.toContain('Egg Masala')
+  it('lists the July lunch non-veg specials', () => {
+    expect(MESS.MON.lunch.special).toContain('Chilli Chicken')
+    expect(MESS.TUE.lunch.special).toContain('Egg Curry')
+    expect(MESS.WED.lunch.special).toContain('Kadai Chicken')
+    expect(MESS.THU.lunch.special).toContain('Egg Masala')
+    expect(MESS.FRI.lunch.special).toContain('Kerala Fish Curry')
+    expect(MESS.SAT.lunch.special).toContain('Egg Kolhapuri')
+    expect(MESS.SUN.lunch.special).toContain('Butter Chicken')
   })
 
   it('offers a boiled egg at every breakfast', () => {

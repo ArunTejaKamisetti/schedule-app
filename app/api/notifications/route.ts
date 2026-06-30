@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { cacheHeaders, SHORT_CACHE } from '@/lib/cache'
 
-// GET /api/notifications?userId=xxx  — edge-cached per user (short TTL; new alerts also arrive via
-// web push, so a ~minute of edge staleness on the badge is fine).
+// GET /api/notifications?userId=xxx  — NOT cached. Alerts are per-user MUTABLE data: the user reads,
+// deletes and clears them, and the badge re-fetches immediately after each mutation. A shared edge
+// cache here would serve the stale pre-mutation list back, so a "Read all" / "Clear" appears to do
+// nothing (the count returns and dismissed alerts reappear on reopen). Keep it uncached.
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('userId')
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     .limit(50)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data, { headers: cacheHeaders(SHORT_CACHE) })
+  return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 // PATCH /api/notifications  → mark as read

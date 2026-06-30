@@ -33,13 +33,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const refreshUnreadCount = useCallback(async () => {
     const id = getOrCreateSessionId()
     if (!id) return
-    const res = await fetch(`/api/notifications?userId=${id}`)
+    const res = await fetch(`/api/notifications?userId=${id}`, { cache: 'no-store' })
     if (!res.ok) return
     const data = await res.json()
     setUnreadCount(data.filter((n: { read: boolean }) => !n.read).length)
   }, [])
 
   useEffect(() => {
+    // Client-only mount init: the session id, cached user and share code come from the URL /
+    // localStorage, which don't exist during SSR. They must be applied after mount (not during
+    // render) to avoid a hydration mismatch, so setState-in-effect is correct here by design.
+    /* eslint-disable react-hooks/set-state-in-effect */
     // Apply a recovery link (?t=<userId>) before resolving the session id.
     applyRecoveryTokenFromUrl()
     const id = getOrCreateSessionId()
@@ -74,6 +78,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
 
     refreshUnreadCount()
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [refreshUnreadCount])
 
   return (
