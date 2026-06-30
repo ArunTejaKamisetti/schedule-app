@@ -104,6 +104,15 @@ export default function TodayPage() {
   // Center the selected day on first paint.
   useEffect(() => { scrollToDate(initialDate, false) }, [initialDate])
 
+  // Switching to Bus unmounts the date rail; coming back mounts a fresh one scrolled to the term
+  // start. Re-center it on the selected day (today by default) so the user doesn't have to scroll
+  // back. Guarded on the Bus→rail transition so Courses↔Mess (rail stays mounted) doesn't re-snap.
+  const prevTab = useRef(tab)
+  useEffect(() => {
+    if (prevTab.current === 'bus' && tab !== 'bus') scrollToDate(selectedDate, false)
+    prevTab.current = tab
+  }, [tab, selectedDate])
+
   function jumpToday() { setSelectedDate(initialDate); scrollToDate(initialDate, true) }
 
   const allForDate = useMemo(() => {
