@@ -3,15 +3,14 @@ import type { CellFormat, RawSheetData, SheetMerge } from './types'
 import type { SheetSource } from './sheets-config'
 import { getSheetsOAuthClient } from './google-auth'
 import {
-  DEFAULT_PROFILE, classifyBySwatches, qualifierArea, matchesKeyword,
+  DEFAULT_PROFILE, classifyBySwatches, matchesKeyword,
   sectionHeaderRegex, divisionCodeRegex, type ColorRules, type InstitutionProfile,
 } from './institution-profile'
 
 // ─── Course catalog (institution-configurable; defaults = IIM-K) ──────────────
-// The area map / cross-sheet aliases used to be hardcoded here. They now live in the Institution
-// Profile (admin-editable, per deployment). These re-exports point at DEFAULT_PROFILE so existing
-// imports keep working; the live sync passes the admin-configured profile into the functions below.
-export const AREA_MAP = DEFAULT_PROFILE.catalog.areaMap
+// The cross-sheet aliases used to be hardcoded here. They now live in the Institution Profile
+// (admin-editable, per deployment). This re-export points at DEFAULT_PROFILE so existing imports keep
+// working; the live sync passes the admin-configured profile into the functions below.
 export const ABBR_ALIAS = DEFAULT_PROFILE.catalog.aliases
 
 export interface CourseDetail {
@@ -39,6 +38,32 @@ function aliasForward(code: string, aliases: Record<string, string>): string {
   const n = normCode(code)
   for (const [k, v] of Object.entries(aliases)) if (normCode(k) === n) return v
   return code
+}
+
+// A "venue / whole-cell" alias is one whose KEY is a multi-word cell ("YMHC MN Common Room" → "YMHC")
+// — as opposed to a plain code alias whose key is a single token ("RTM" → "RM"). The two are handled
+// differently: a venue alias normalises the schedule cell to its real code at parse time, a plain
+// alias leaves the schedule code as written and maps the roster onto it.
+function isVenueAliasKey(key: string): boolean {
+  return /\s/.test(key.trim())
+}
+
+// Resolve a SCHEDULE cell to its stored course code (+ room, for a venue cell). For a VENUE alias
+// whose key matches the whole cell, store the real code ('YMHC') and move the leftover text into the
+// room ('MN Common Room') — so the class matches the roster's clean 'YMHC' regardless of when the
+// alias was added, and displays cleanly. A plain cell (or a plain code alias) keeps its own code.
+export function normalizeScheduleCode(
+  raw: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases
+): { code: string; room?: string } {
+  const cleaned = cleanCode(raw)
+  const n = normCode(cleaned)
+  for (const [k, target] of Object.entries(aliases)) {
+    if (!isVenueAliasKey(k) || normCode(k) !== n) continue
+    // The target is normally the leading token of the cell; the rest is the venue/room.
+    const room = normCode(cleaned).startsWith(normCode(target)) ? cleaned.slice(target.length).trim() : ''
+    return { code: target, room: room || undefined }
+  }
+  return { code: cleaned }
 }
 
 // Strip section suffix and program qualifiers to get the base abbreviation
@@ -86,26 +111,11 @@ export function aliasToScheduleCode(code: string, aliases: Record<string, string
   const base = getBaseAbbr(code)
   const up = base.toUpperCase()
   if (aliases[base] ?? aliases[up]) return code // already a schedule-side code (an alias key)
-  const entry = Object.entries(aliases).find(([, v]) => v.toUpperCase() === up)
+  // Only PLAIN code aliases (single-token key) reverse-map onto the schedule code. A venue alias is
+  // normalised at PARSE time (normalizeScheduleCode), so the stored course_code already equals the
+  // roster's clean code — leave it untouched, or we'd turn "YMHC" back into "YMHC MN Common Room".
+  const entry = Object.entries(aliases).find(([k, v]) => !isVenueAliasKey(k) && v.toUpperCase() === up)
   return entry ? entry[0] + code.slice(base.length) : code
-}
-
-export function getArea(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
-  // Programme qualifiers take priority (Sheet-2 truth) — a FIN/LSM-core course must land
-  // under FIN/LSM Core even if its base abbreviation also exists as a PGP elective area.
-  const q = qualifierArea(code, profile.catalog.qualifiers)
-  if (q) return q
-  const areaMap = profile.catalog.areaMap
-  // The schedule code's own base first (e.g. "RTM" → MM — RTM is in the map, RM is not).
-  const base = getBaseAbbr(code)
-  if (areaMap[base]) return areaMap[base]
-  // Fallback for a code only resolvable via its alias (e.g. "YMHC MN Common Room" → "YMHC" → HLAM).
-  const canon = aliasForward(code, profile.catalog.aliases)
-  if (canon !== code) {
-    const baseC = getBaseAbbr(canon)
-    if (areaMap[baseC]) return areaMap[baseC]
-  }
-  return 'Other'
 }
 
 // Parse the Course Details tab into a lookup map.
@@ -388,15 +398,14 @@ function parseScheduleMatrix(
     for (const s of sections) {
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
-      // Store the SCHEDULE's own code (cleaned: newlines/whitespace collapsed, e.g.
-      // "YMHC\nMN Common Room" → "YMHC MN Common Room"). The schedule is the source of truth for
-      // display; the roster's alternate spelling is mapped onto this code in lib/roster via the
-      // catalog alias, and area/details resolve through the alias too.
-      const code = cleanCode(raw)
+      // A plain cell stores the SCHEDULE's own cleaned code (the source of truth for display); a
+      // VENUE cell ("YMHC\nMN Common Room") normalises to the real code ("YMHC") with the leftover
+      // text as its room, so it matches the roster's clean "YMHC". Details resolve through the code.
+      const { code, room } = normalizeScheduleCode(raw, profile.catalog.aliases)
       results.push({
         course_code: code, course_name: code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
-        room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
+        room: room ?? s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
         is_common: false, event_kind: 'class',
       })
     }

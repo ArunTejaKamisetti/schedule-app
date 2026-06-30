@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FilePicker } from '@/components/file-picker'
 
 interface SourceOpt {
   key: string
@@ -10,23 +9,16 @@ interface SourceOpt {
   sheetUrl: string | null
   updatedAt: string | null
 }
-interface UploadResult { ok?: boolean; source?: string; added?: number; modified?: number; removed?: number; changes?: number; error?: string }
 
 // Admin term-schedule management. Per term the admin pastes the new Google Sheet LINK for each
-// source (the app reads it with the stored Google authorization — no env, no per-term code). The
-// .xlsx upload below stays as an offline fallback. The /api/admin/** routes enforce the admin check.
+// source (the app reads it with the stored Google authorization — no env, no per-term code), then
+// runs "Sync now" on the dashboard. The /api/admin/** routes enforce the admin check.
 export default function ScheduleAdminPage() {
   const [sources, setSources] = useState<SourceOpt[]>([])
   const [googleAuthorized, setGoogleAuthorized] = useState<boolean | null>(null)
   const [links, setLinks] = useState<Record<string, string>>({})
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-
-  // .xlsx upload state
-  const [sourceKey, setSourceKey] = useState('')
-  const [file, setFile] = useState<File | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<UploadResult | null>(null)
 
   function load() {
     fetch('/api/admin/schedule')
@@ -36,7 +28,6 @@ export default function ScheduleAdminPage() {
         setSources(s)
         setGoogleAuthorized(d.googleAuthorized ?? false)
         setLinks(Object.fromEntries(s.map((x) => [x.key, x.sheetUrl ?? ''])))
-        if (s[0]) setSourceKey((prev) => prev || s[0].key)
       })
       .catch(() => {})
   }
@@ -69,23 +60,6 @@ export default function ScheduleAdminPage() {
       setNotice(`⚠️ ${e instanceof Error ? e.message : 'Save failed'}`)
     } finally {
       setSavingKey(null)
-    }
-  }
-
-  async function upload() {
-    if (!file || !sourceKey) return
-    setBusy(true)
-    setResult(null)
-    try {
-      const fd = new FormData()
-      fd.append('sourceKey', sourceKey)
-      fd.append('file', file)
-      const res = await fetch('/api/admin/schedule', { method: 'POST', body: fd })
-      setResult(await res.json())
-    } catch (e) {
-      setResult({ error: e instanceof Error ? e.message : 'Upload failed' })
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -143,52 +117,6 @@ export default function ScheduleAdminPage() {
             {s.updatedAt && <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Last updated {new Date(s.updatedAt).toLocaleString()}</p>}
           </div>
         ))}
-      </section>
-
-      {/* .xlsx upload fallback */}
-      <section style={{ marginTop: 16, border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Or upload an .xlsx (offline fallback)</div>
-        <p style={{ color: '#666', fontSize: 13, marginTop: 4 }}>
-          A workbook with a <b>“…Schedule”</b> tab + a <b>“Course Details”</b> tab. Cell colours
-          (red = cancelled, green = added) and merged event banners are read.
-        </p>
-        <select
-          value={sourceKey}
-          onChange={(e) => setSourceKey(e.target.value)}
-          style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, marginTop: 10 }}
-        >
-          {sources.length === 0 && <option value="">No sources configured</option>}
-          {sources.map((s) => <option key={s.key} value={s.key}>{label(s)}</option>)}
-        </select>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-          <FilePicker
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            file={file}
-            onPick={setFile}
-            disabled={busy}
-          />
-          <button
-            onClick={upload}
-            disabled={!file || !sourceKey || busy}
-            style={{
-              background: !file || !sourceKey || busy ? '#a5b4fc' : '#4f46e5', color: '#fff', border: 'none',
-              borderRadius: 8, padding: '8px 14px', fontWeight: 600, cursor: !file || !sourceKey || busy ? 'default' : 'pointer',
-            }}
-          >
-            {busy ? 'Uploading…' : 'Upload & sync'}
-          </button>
-        </div>
-        {result && (
-          <pre style={{
-            marginTop: 12, background: result.error ? '#fef2f2' : '#f0fdf4', color: '#111',
-            border: `1px solid ${result.error ? '#fecaca' : '#bbf7d0'}`, borderRadius: 8, padding: 12,
-            fontSize: 12, whiteSpace: 'pre-wrap', overflowX: 'auto',
-          }}>
-            {result.error
-              ? `Error: ${result.error}`
-              : `Synced ${result.source}: +${result.added} added · ~${result.modified} modified · −${result.removed} removed · ${result.changes} change notifications.`}
-          </pre>
-        )}
       </section>
     </main>
   )

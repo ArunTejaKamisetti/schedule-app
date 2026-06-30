@@ -46,6 +46,10 @@ export interface DiffResult {
   removed: ParsedCourse[]
   changes: CourseChange[]
   upserts: ParsedCourse[]
+  // Slots whose highlight should be CLEARED this sync — e.g. a coordinator removed the green "added"
+  // mark. Their rows survive (so they aren't in `removed`), but their "New" badge must go away rather
+  // than ride out the 3-day window (this is half of the "tags stopped piling up" fix).
+  reverted: ParsedCourse[]
 }
 
 // A physical slot in the timetable: a specific date + time + division (column).
@@ -72,6 +76,7 @@ export function diffSheetData(
       removed: [],
       changes: newAll.map((c) => ({ type: 'added', new: parsedToPartial(c), course_code: c.course_code, course_name: c.course_name })),
       upserts: newAll,
+      reverted: [],
     }
   }
 
@@ -88,6 +93,7 @@ export function diffSheetData(
   const changes: CourseChange[] = []
   const added: ParsedCourse[] = []
   const removed: ParsedCourse[] = []
+  const reverted: ParsedCourse[] = []
   const candAdd: ParsedCourse[] = []   // appeared in a slot (new or replacing different content)
   const candRemove: ParsedCourse[] = [] // vanished from a slot (or replaced)
 
@@ -116,8 +122,10 @@ export function diffSheetData(
         // Cell turned green → coordinator marked this class as added/new.
         tag(nc, 'added', 'Marked as added')
         changes.push({ type: 'added', new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name })
+      } else if (os === 'green') {
+        // green → normal: coordinator removed the "added" highlight → clear the badge (no notification).
+        reverted.push(nc)
       }
-      // green → normal (highlight removed): no notification.
       continue
     }
 
@@ -178,5 +186,5 @@ export function diffSheetData(
     changes.push({ type: 'removed', old: parsedToPartial(rm), course_code: rm.course_code, course_name: rm.course_name })
   }
 
-  return { added, removed, changes, upserts: newAll }
+  return { added, removed, changes, upserts: newAll, reverted }
 }

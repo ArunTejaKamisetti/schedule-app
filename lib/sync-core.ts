@@ -1,7 +1,8 @@
-import { parseCourseDetails, getDetailAbbr, getArea, detailKey, fetchBothSheetTabsWithFormatting } from './sheets'
+import { parseCourseDetails, getDetailAbbr, detailKey, fetchBothSheetTabsWithFormatting } from './sheets'
 import type { SheetSource } from './sheets-config'
 import { loadInstitutionProfile } from './institution-profile'
 import { diffSheetData } from './diff'
+import { CHANGE_WINDOW_MS } from './changes'
 import { notifyAffectedUsers } from './notify'
 import { syncGoogleCalendarForUsers } from './gcal'
 import { createServiceClient } from './supabase/server'
@@ -35,11 +36,13 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
   const diff = diffSheetData(previousSnapshot, newData, profile)
   const syncStartedAt = new Date().toISOString()
 
-  // Fast no-op path: once we have a baseline, most runs (especially at a 30-min cadence) find the
-  // sheet unchanged. Skip the heavy tail — writing a fresh full raw_snapshot to sync_log, pruning
-  // logs, and the notify/calendar work — and just return. The previous snapshot stays the baseline
-  // for the next diff. Re-uploading an identical .xlsx is likewise a cheap no-op.
-  if (previousSnapshot && diff.upserts.length === 0 && diff.removed.length === 0) {
+  // `diff.upserts` is always the full re-parsed sheet, so the only true skip is an empty parse (a
+  // misconfigured/empty source). We deliberately DON'T short-circuit an "unchanged" sheet: re-running
+  // the idempotent upsert is exactly how a newly-saved profile change (e.g. adding the YMHC venue
+  // alias) gets applied to EXISTING rows on the next sync. Tag pile-up is prevented by the
+  // highlight-clearing step below — not by skipping — and notify is still gated on real changes,
+  // so an unchanged re-sync stays silent.
+  if (diff.upserts.length === 0 && diff.removed.length === 0) {
     return { added: 0, modified: 0, removed: 0, changes: 0, skipped: true }
   }
 
@@ -67,7 +70,7 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
     // Enrich from Course Details. 2nd-year (division) path is unchanged; 1st-year (section)
     // looks up name/credit by abbr and faculty by (abbr, section). Events get no enrichment.
     const enrichedRows = rows.map((r) => {
-      if (r.is_common) return { ...r, area: null }
+      if (r.is_common) return r
       if (source.layout === 'section') {
         const { primary, fallback } = detailKey(r.course_code, r.sheet_tab, 'section', profile)
         const base = detailsMap.get(fallback)
@@ -77,19 +80,17 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
           course_name: base?.name || r.course_name,
           instructor: secDetail?.faculty || base?.faculty || r.instructor || null,
           credits: base?.credits || r.credits || null,
-          area: null,
         }
       }
-      // course_code is already canonical (a venue/edge-case override was applied in the parser), so
-      // enrichment is the same for every course: look up Course Details by code, else keep the parsed
-      // name (which is the cell's own label for an override cell).
+      // course_code is already canonical (a venue cell was normalised in the parser), so enrichment is
+      // the same for every course: look up Course Details by code, else keep the parsed name (which is
+      // the cell's own label for a venue cell).
       const detail = detailsMap.get(getDetailAbbr(r.course_code, profile))
       return {
         ...r,
         course_name: detail?.name || r.course_name,
         instructor: detail?.faculty || r.instructor || null,
         credits: detail?.credits || r.credits || null,
-        area: getArea(r.course_code, profile),
       }
     })
 
@@ -119,6 +120,29 @@ export async function ingestSheetData(supabase: SB, source: SheetSource, newData
       await Promise.all(changedRows.slice(i, i + CHUNK).map((c) =>
         supabase.from('courses')
           .update({ change_kind: c.change_kind, change_note: c.change_note ?? null, last_changed_at: nowIso })
+          .eq('source_key', source.key)
+          .eq('course_code', c.course_code).eq('sheet_tab', c.sheet_tab)
+          .eq('session_date', c.session_date).eq('start_time', c.start_time)
+      ))
+    }
+  }
+
+  // Clear highlights that should no longer show, so "New"/"Moved" badges don't accumulate:
+  //   (a) STALE — any tag older than the visible window (the UI already hides these; this keeps the
+  //       DB from carrying invisible tags forward sync after sync).
+  //   (b) REVERTED — a coordinator removed the green "added" mark this sync (diff.reverted).
+  const clearCols = { change_kind: null, change_note: null, last_changed_at: null }
+  await supabase.from('courses')
+    .update(clearCols)
+    .eq('source_key', source.key)
+    .not('change_kind', 'is', null)
+    .lt('last_changed_at', new Date(Date.now() - CHANGE_WINDOW_MS).toISOString())
+  if (diff.reverted.length > 0) {
+    const CHUNK = 50
+    for (let i = 0; i < diff.reverted.length; i += CHUNK) {
+      await Promise.all(diff.reverted.slice(i, i + CHUNK).map((c) =>
+        supabase.from('courses')
+          .update(clearCols)
           .eq('source_key', source.key)
           .eq('course_code', c.course_code).eq('sheet_tab', c.sheet_tab)
           .eq('session_date', c.session_date).eq('start_time', c.start_time)

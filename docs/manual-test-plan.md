@@ -17,7 +17,7 @@
 | 0.1 | Unset a required env var (e.g. `CRON_SECRET`), `npm run dev`. | Server **fails fast** with `Missing required environment variable(s): CRON_SECRET …` — `lib/env.ts:assertServerEnv` via `instrumentation.ts`. |
 | 0.2 | Restore env, `npm run dev`. | Boots cleanly. |
 | 0.3 | `npm run build`. | Type-checks and builds (exit 0) — `ignoreBuildErrors` is removed. If a phantom `*/route.js` type error appears, `rm -rf .next` first. |
-| 0.4 | `npm test` / `npm run lint`. | 210 tests pass; lint exits 0 (only `set-state-in-effect` **warnings**). |
+| 0.4 | `npm test` / `npm run lint`. | 244 tests pass; lint exits 0 (only `set-state-in-effect` **warnings**). |
 | 0.5 | Open the app, DevTools → Application. | `manifest.json` loads; `sw.js` registers (`session-provider.tsx`). Installable PWA. |
 
 ---
@@ -47,8 +47,8 @@
 | 2.3 | Paste a valid Google Sheet **link** for source `y2` → **Save link**. | "Saved link for y2…"; `schedule_sources` upserted (`/api/admin/schedule/source`, `parseSheetId`). Paste a garbage string → "Could not find a Google Sheet id…". |
 | 2.4 | `/admin/preview`. | Renders fetched rows + parsed sample for the first configured source. With **no** source configured → "No schedule source configured — paste a Google Sheet link…". |
 | 2.5 | `/admin` → **Sync now**. | "Sync complete — schedule refreshed."; the **Schedule sync** table shows a `success` row per source with `+/~/−` counts (`/api/sync` → `syncOneSource` → `ingestSheetData`). |
-| 2.6 | Click **Sync now** again immediately (no sheet change). | Succeeds; `rows_added/modified/removed` ~0 — the no-op fast path (`ingestSheetData` skip). |
-| 2.7 | `/admin/schedule` → **upload .xlsx** (a workbook with a "…Schedule" + "Course Details" tab) for a source. | "Synced …: +x added · ~y modified · −z removed …" — same `ingestSheetData` path as a Google sync (`/api/admin/schedule` POST). An empty/invalid file → a clear 400. |
+| 2.6 | Click **Sync now** again immediately (no sheet change). | Succeeds with **0 change notifications** (`changes: 0`) — no new alerts, no highlights. The sheet is re-upserted **idempotently** each sync (so the `modified` count may show the full row total even though nothing actually changed) — by design, so a saved Institution-Profile change still applies; only a truly **empty** parse short-circuits (`ingestSheetData`). |
+| 2.7 | `/admin/schedule` → confirm there is **no** `.xlsx` upload control. | Only the per-source **link paste + Save** and the Google-access status are shown; the schedule is pulled from the pasted Google Sheet by **Sync now**. The `.xlsx` schedule upload (and its route/lib) were **removed** — the online sheet is the single source of truth. (Roster `.xlsx` upload still exists under `/admin/roster`.) |
 | 2.8 | `/admin/roster` → upload **1st-year** roster (.xlsx: email, section). | "Stored N students · applied to M already-signed-in." (`parseYear1Roster` → `replace_roster_year`). |
 | 2.9 | Upload **2nd-year** roster (.xlsx: email + elective codes matching the sheet, e.g. `GT-A`). | Same success shape; `enrollments` populated for already-registered students (`apply_roster_to_user`). |
 | 2.10 | `/admin/bus-mess` → **Copy prompt**, paste valid JSON → **Validate & save**. | "Saved ✓ N trips / N days. Students see it within ~10 min (cached)." (`parseBusPayload`/`parseMessPayload` → `site_content`). Paste malformed JSON → a human-readable validation error (no save). |
@@ -60,7 +60,7 @@
 
 | # | Steps | Expected |
 |---|-------|----------|
-| 3.1 | Open **Today**. | Header shows "Today" + full date; a horizontal **date rail** spans the term (`TERM_START`→`TERM_END`), centred on today, with month labels. |
+| 3.1 | Open **Today**. | Header shows "Today" + full date; a horizontal **date rail** spans the **uploaded schedule's own range** (a few days around your sessions + your-year exams) — `termDates()`, **not** a hardcoded term — centred on today, with month labels. A 1st-year and 2nd-year see **different** ranges matching their own sheets. |
 | 3.2 | New account with no courses. | The branded **Onboarding** card with "Add your courses". (Under roster management the student's courses are auto-filled, so this only shows if the roster has no entry for them.) |
 | 3.3 | After enrollment, look at today. | Class cards sorted by start time; each shows code, name, time, room ("Class X"), instructor. Common events (exams/holidays) appear amber for your year (`useCommonEvents`). |
 | 3.4 | A day with no classes. | "No classes on {date} · Enjoy the free day". |
@@ -77,16 +77,18 @@
 
 | # | Steps | Expected |
 |---|-------|----------|
-| 3a.1 | Today → **Mess**, pick a weekday on the rail. | Breakfast/Lunch/Dinner cards for that weekday; veg items + highlighted "special" chips; the admin's note line (`MessView`, from `/api/bus-mess` or the built-in fallback). |
-| 3a.2 | A weekday with no menu. | "No menu." |
+| 3a.1 | Today → **Mess** (after an admin upload), pick a weekday on the rail. | Breakfast/Lunch/Dinner cards for that weekday; veg items + highlighted "special" chips; the admin's note line (`MessView`, from `/api/bus-mess`). Duplicate menu items no longer throw a React "two children with the same key" console error (keyed by `value+index`). |
+| 3a.2 | Mess with **no** admin upload yet. | An empty state: **"No mess menu yet — Ask your admin to upload the mess menu."** There is **no** built-in IIM-K fallback (`getMessContent` returns empty; `AdminUploadEmpty`). |
+| 3a.3 | An uploaded menu missing one weekday. | "No menu for {weekday}." |
 
 ### 3b. Bus tab
 
 | # | Steps | Expected |
 |---|-------|----------|
-| 3b.1 | Today → **Bus**. | Trip list; the **NEXT** bus (first trip with `min ≥ now` in IST) is highlighted and auto-scrolled into view (`BusView`, `nextIdx`). The date rail is hidden (bus is the same daily). |
+| 3b.1 | Today → **Bus** (after an admin upload). | Trip list; the **NEXT** bus (first trip with `min ≥ now` in IST) is highlighted and auto-scrolled into view (`BusView`, `nextIdx`). The date rail is hidden (bus is the same daily). |
 | 3b.2 | Tap a stop filter chip. | List filters to trips from that stop; re-scrolls to the next one. |
 | 3b.3 | A "via main gate" trip. | Shows the "→ MAIN GATE" tag. |
+| 3b.4 | Bus with **no** admin upload yet. | An empty state: **"No bus timings yet — Ask your admin to upload the bus timings."** No built-in fallback (`getBusContent` returns empty). |
 
 ---
 
@@ -119,7 +121,7 @@
 | 5.3 👤 | Mark classes present/absent in Today/Schedule (either year), return here. | Stats update **instantly** (client-computed from the shared caches — `summarizeAttendance`); attendance % turns red below 75%. Works for 1st and 2nd years alike. |
 | 5.4 | A course where credits×8 ≠ scheduled count. | "· credits expect N ⓘ" hint (`mismatch`). |
 | 5.5 👤 | Open **Courses** before your section/electives are loaded (or not in any roster). | Friendly empty state: "No courses yet — your classes appear once your section / electives are loaded." (no crash). |
-| 5.6 🔑 | Open **Courses** as **admin**. | "All Courses · 2nd Year", every course grouped by area, read-only, "you're enrolled in all of them". A **1st/2nd Year** switch is shown (admins only) — `/api/courses?catalog=1&year=`. |
+| 5.6 🔑 | Open **Courses** as **admin**. | "All Courses · 2nd Year", every course as a **flat, code-sorted list** (the old **area grouping/headers were removed** — there's no Finance/Marketing/etc. sections), read-only, "you're enrolled in all of them". A **1st/2nd Year** switch is shown (admins only) — `/api/courses?catalog=1&year=`. |
 | 5.7 🔑 | Switch the admin year tab to 1st. | Lists all 1st-year courses (year-parameterised `course_catalog`). |
 | 5.8 | (Self-service regression, only if `ROSTER_MANAGED=false`) 2nd-year picks an elective. | Optimistic toggle; `pick_course`/`unpick_course`; account flips to year 2; background Google-Calendar sync of just that course. |
 
@@ -142,7 +144,7 @@
 | # | Steps | Expected |
 |---|-------|----------|
 | 6a.1 | Friend row → compare (→ arrow). | `/friends/compare?friendId=…`. A date strip + a per-slot grid: **You** vs friend, coloured Both-free / Same-class / Clash / One-only (`isBusyAt`, date-based). |
-| 6a.2 | Step through dates. | Defaults to today (or first date with data); common exams appear on both sides. |
+| 6a.2 | Open Compare; look at the date strip on load. | Defaults to **today** (or the first date with data) **and the strip auto-scrolls so that day is centred/visible** — no manual scrolling to find today (`stripRef` + `scrollIntoView`). Common exams appear on both sides. |
 | 6a.3 👤 | Manually GET `/api/friends/compare?friendId=<a stranger's id>`. | **403 "Not friends"** — friendship is verified server-side before returning any schedule. |
 
 ### 6b. Free-Time Analysis 👥
@@ -201,7 +203,9 @@ For each, edit the **source sheet**, **Sync now**, then check Today/Schedule/Ale
 | 9.7 | Delete a class from the sheet. | "Removed" alert; the session disappears after reconcile. |
 | 9.8 | Add an **amber** event / "Mid-Term Exam" row spanning dates (merged). | A common event/exam appears on every spanned date for everyone of that year (`eventDates`, `is_common`). |
 | 9.9 | Break the 1st-year sheet, keep 2nd-year valid, sync. | 2nd-year is unaffected; the 1st-year source logs an `error` row — reconcile is `source_key`-scoped (`sync-core`). |
-| 9.10 | Let a change age past 3 days, sync again. | The highlight clears (`change_kind/note/last_changed_at` nulled by the global expiry in `/api/sync`). |
+| 9.10 | Let a change age past 3 days, sync again. | The highlight clears — `change_kind/note/last_changed_at` nulled by the **stale-clear step** in `ingestSheetData`, using `CHANGE_WINDOW_MS` (`lib/changes.ts`); the UI gates the badge on the same 3-day window. |
+| 9.11 🔁 | **Green** a class (sync → "New" badge appears), then **remove the green** in the sheet and sync again. | The "New" badge **clears immediately** with **no** notification — instead of lingering the rest of the 3 days (`diff.reverted` → sync nulls the highlight). Re-syncing the **same** sheet repeatedly never re-stamps or piles up tags — the "tags stopped piling up" fix. |
+| 9.12 🔁 | In `/admin/profile` → **Catalog**, add alias **`YMHC MN Common Room` → `YMHC`** (multi-word key = a venue cell), with a student whose roster lists `YMHC`. **Sync now**. | The class is stored as code **`YMHC`** with room **`MN Common Room`** (normalised **at parse time** — `normalizeScheduleCode`), so the enrolled student sees it **regardless of when the alias was added** (order-independent, no roster re-upload). A single-token alias (`RTM`→`RM`) still keeps `RTM` on the schedule and maps the roster onto it (`aliasToScheduleCode`). |
 
 ---
 
@@ -267,10 +271,13 @@ For each, edit the **source sheet**, **Sync now**, then check Today/Schedule/Ale
 
 ## 15. Regression checklist before merge/handover
 
-- [ ] `npm test` (210) · `npm run lint` (0 errors) · `npm run build` (type-checks, exit 0).
+- [ ] `npm test` (244) · `npm run lint` (0 errors) · `npm run build` (type-checks, exit 0).
 - [ ] Sign-in restricted to `@iimk.ac.in`; admin-only paths blocked for students; impersonation params no-op.
 - [ ] No hardcoded sheet IDs anywhere — Schedule "Sheet" and Settings "View Original Sheet" follow the admin-pasted link; both disable/no-op cleanly when unset.
-- [ ] A sheet edit produces correct alerts + UI highlights; an identical re-sync is a cheap no-op; a broken year doesn't break the other.
+- [ ] Today date-rail follows the **uploaded schedule's** range (no `TERM_START/END`); 1st vs 2nd year differ.
+- [ ] A sheet edit produces correct alerts + UI highlights that **clear on revert/age-out**; an identical re-sync yields **0 change alerts**; a broken year doesn't break the other.
+- [ ] No `.xlsx` schedule upload (link-paste + Sync now only); roster `.xlsx` upload still works.
+- [ ] Courses is a flat list (no area grouping); a venue cell (`YMHC MN Common Room`) resolves to the real code for an enrolled student, alias-order-independent.
 - [ ] Roster upload personalises schedules; "students who left" preview→confirm→cascade works with both rosters loaded.
-- [ ] Bus/mess paste-import renders; falls back to built-ins before any upload.
+- [ ] Bus/mess paste-import renders; shows an **"ask your admin to upload"** empty state before any upload (no built-in default).
 - [ ] Calendar `.ics` + Google sync produce correct IST-dated events; retention purge removes only old per-user rows.

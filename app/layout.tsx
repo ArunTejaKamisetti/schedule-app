@@ -8,7 +8,7 @@ const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
   title: 'KampusSchedule',
-  description: 'Your IIM-K schedule, mess menu, bus timings, attendance & friends — in one place.',
+  description: 'Your schedule, mess menu, bus timings, attendance & friends — in one place.',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'KampusSchedule' },
   formatDetection: { telephone: false },

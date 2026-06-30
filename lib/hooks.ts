@@ -23,7 +23,7 @@ type AttRow = { course_id: string; status: string }
 type NoteRow = { course_id: string; session_date: string | null; body: string }
 
 export type CourseStat = {
-  code: string; name: string; area: string | null; instructor: string | null
+  code: string; name: string; instructor: string | null
   room: string | null; credits: string | null
   total: number; held: number; present: number; absent: number; left: number; expected: number
 }

@@ -3,9 +3,8 @@
 // added/removed from slot structure) is institution-agnostic and lives elsewhere; this is only the
 // vocabulary the parser/classifier needs:
 //   • colors    — which fill colour means cancelled / added / event (and how to match it)
-//   • catalog   — course abbreviation → area, cross-sheet aliases, programme qualifiers
+//   • catalog   — cross-sheet course aliases (a code that differs schedule-vs-roster, or a venue cell)
 //   • sections  — section labels, section-header prefix, division-code shape
-//   • overrides — venue/edge-case cells (e.g. "YMHC MN Common Room")
 //   • keywords  — words that mark a row to skip (lunch/break) or treat as a common event (exam)
 //
 // `DEFAULT_PROFILE` holds the current IIM-K values so every pure function keeps its old behaviour
@@ -32,20 +31,15 @@ export interface ColorRules {
   tolerance: number     // 0..1 max perceptual distance to count as a match (custom mode)
 }
 
-export interface QualifierRule {
-  contains: string      // matched (whitespace/dash-insensitive) against the course code
-  area: string          // the area to assign, e.g. 'FIN Core'
-}
-
 export interface CatalogConfig {
-  areaMap: Record<string, string>   // base abbreviation → area ('GT' → 'ECO')
-  // Schedule code → its canonical (roster / Course-Details) code. Handles two cases with one rule:
-  //   • a base-abbr alias: 'RTM' → 'RM' (also covers 'RTM-A' → 'RM-A')
-  //   • a whole-cell alias for a messy venue/edge cell: 'YMHC MN Common Room' → 'YMHC'
-  // The schedule's code stays as written (display); the roster's form is mapped onto it for matching,
-  // and area/details are resolved through it. Matching is case- and whitespace-insensitive.
+  // Schedule code → its canonical (roster / Course-Details) code. Handles two cases with one map:
+  //   • a plain code alias (single-token key): 'RTM' → 'RM' (also covers 'RTM-A' → 'RM-A'). The
+  //     schedule keeps its own code for display; the roster's form maps onto it (aliasToScheduleCode).
+  //   • a venue / whole-cell alias (multi-word key): 'YMHC MN Common Room' → 'YMHC'. The parser
+  //     stores the real code ('YMHC') and moves the leftover text into the room, so the class matches
+  //     the roster's 'YMHC' no matter when the alias was added (normalizeScheduleCode).
+  // Matching is case- and whitespace-insensitive.
   aliases: Record<string, string>
-  qualifiers: QualifierRule[]        // programme qualifiers, checked IN ORDER (Core before plain)
 }
 
 export interface SectionConfig {
@@ -68,43 +62,10 @@ export interface InstitutionProfile {
 
 // ── Default profile = the current IIM-K vocabulary (built-in fallback) ───────────────────────────
 
-// From the List of Electives PDF — abbreviation → area.
-const DEFAULT_AREA_MAP: Record<string, string> = {
-  // ECO
-  GT: 'ECO', FC: 'ECO', EMPC: 'ECO',
-  // OBHR
-  JOY: 'OBHR', LLIR: 'OBHR', NCM: 'OBHR', TTT: 'OBHR',
-  LIDA: 'OBHR', TM: 'OBHR', MIO: 'OBHR', GWO: 'OBHR', MBGM: 'OBHR',
-  // FAC
-  IAPM: 'FAC', CBM: 'FAC', FD: 'FAC', FIS: 'FAC', CV: 'FAC', POF: 'FAC',
-  // HLAM
-  GC: 'HLAM', WIS: 'HLAM', ILM: 'HLAM', VC: 'HLAM',
-  IPR: 'HLAM', LME: 'HLAM', YMHC: 'HLAM', DPI: 'HLAM',
-  // IS
-  AIB: 'IS', DBT: 'IS', CS: 'IS', DA: 'IS', ECOM: 'IS',
-  MITPS: 'IS', SOMA: 'IS', GDBD: 'IS', 'DW3.0': 'IS', EITRM: 'IS', MBGAI: 'IS',
-  // DSOM
-  HSCM: 'DSOM', DAR: 'DSOM', SOM: 'DSOM', SCM: 'DSOM', PM: 'DSOM',
-  // MM
-  CB: 'MM', CMO: 'MM', CA: 'MM', RTM: 'MM', MRBDM: 'MM',
-  MBM: 'MM', SDM: 'MM', MA: 'MM', DM: 'MM', MOB: 'MM', MAAS: 'MM',
-  // SM
-  GBS: 'SM', CG: 'SM', SBRA: 'SM', POSS: 'SM',
-  CONSULTING: 'SM', IB: 'SM', EOS: 'SM',
-}
-
 export const DEFAULT_PROFILE: InstitutionProfile = {
   colors: { mode: 'auto', cancelled: ['#ff0000'], added: ['#00ff00'], event: ['#ffc000'], tolerance: 0.25 },
   catalog: {
-    areaMap: DEFAULT_AREA_MAP,
     aliases: { RTM: 'RM' },
-    // Order matters: a Core qualifier must be checked before its plain elective (FIN before FIN…).
-    qualifiers: [
-      { contains: '(FIN-Core)', area: 'FIN Core' },
-      { contains: '(LSM-Core)', area: 'LSM Core' },
-      { contains: '(FIN)', area: 'FIN Elective' },
-      { contains: '(LSM)', area: 'LSM Elective' },
-    ],
   },
   sections: {
     sectionLabels: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
@@ -120,23 +81,6 @@ export const DEFAULT_PROFILE: InstitutionProfile = {
 }
 
 // ── Pure helpers (no DB, no imports — unit-tested) ───────────────────────────────────────────────
-
-// Lowercase + strip whitespace & dashes, keeping parens/alphanumerics — so "(FIN-Core)",
-// "(FIN Core)" and "(fincore)" all compare equal, while a plain "(FIN)" still can't match a code
-// that merely contains the letters "fin" (the paren stays significant).
-function normForMatch(s: string): string {
-  return (s || '').toLowerCase().replace(/[\s-]+/g, '')
-}
-
-// The area implied by a programme qualifier (checked in order), or null if none applies.
-export function qualifierArea(code: string, qualifiers: QualifierRule[]): string | null {
-  const n = normForMatch(code)
-  for (const q of qualifiers) {
-    const needle = normForMatch(q.contains)
-    if (needle && n.includes(needle)) return q.area
-  }
-  return null
-}
 
 // Normalised substring keyword match (e.g. "MID TERM" matches a "mid term" rule). Used for both
 // skip and event keyword lists so admins can type "mid term" / "end-term" interchangeably.
@@ -298,14 +242,7 @@ export function sanitizeProfilePatch(input: unknown): ProfilePatch {
   }
 
   if (isRecord(input.catalog)) {
-    const cat = input.catalog
-    const qualifiers = Array.isArray(cat.qualifiers)
-      ? cat.qualifiers
-          .filter(isRecord)
-          .map((q) => ({ contains: String(q.contains ?? '').trim(), area: String(q.area ?? '').trim() }))
-          .filter((q) => q.contains && q.area)
-      : []
-    patch.catalog = { areaMap: strRecord(cat.areaMap), aliases: strRecord(cat.aliases), qualifiers }
+    patch.catalog = { aliases: strRecord(input.catalog.aliases) }
   }
 
   if (isRecord(input.sections)) {

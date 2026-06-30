@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import useSWR from 'swr'
 import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, MapPin, CalendarDays } from 'lucide-react'
@@ -56,6 +56,16 @@ function CompareContent() {
     setSelectedDate(dates.includes(today) ? today : dates[0])
   }, [dates, selectedDate])
 
+  // Centre the date strip on the selected day once, on first load — otherwise today sits off-screen
+  // to the right and the user has to scroll to find it (the strip spans the whole term).
+  const stripRef = useRef<HTMLDivElement>(null)
+  const centeredRef = useRef(false)
+  useEffect(() => {
+    if (centeredRef.current || !selectedDate) return
+    centeredRef.current = true
+    stripRef.current?.querySelector(`[data-iso="${selectedDate}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [selectedDate])
+
   // Common events (exams) belong to both people's day.
   const myDay = useMemo(
     () => [...mine, ...common].filter((c) => c.session_date === selectedDate).sort((a, b) => timeMin(a.start_time) - timeMin(b.start_time)),
@@ -89,12 +99,12 @@ function CompareContent() {
   return (
     <div className="flex flex-col h-full">
       {/* Date strip */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border shrink-0">
+      <div ref={stripRef} className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5 border-b border-border shrink-0">
         {dates.map((iso) => {
           const active = iso === selectedDate
           const d = parseISO(iso)
           return (
-            <button key={iso} onClick={() => setSelectedDate(iso)}
+            <button key={iso} data-iso={iso} onClick={() => setSelectedDate(iso)}
               className={cn('shrink-0 flex flex-col items-center px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors min-w-[46px]',
                 active ? 'bg-indigo-600 text-white' : 'bg-muted text-foreground')}>
               <span className="text-[10px]">{format(d, 'EEE').toUpperCase()}</span>

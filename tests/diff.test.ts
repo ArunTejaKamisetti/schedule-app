@@ -94,6 +94,19 @@ describe('diffSheetData', () => {
     expect(d.changes.some((c) => c.type === 'added' && c.course_code === 'GT-A')).toBe(true)
   })
 
+  it('a green highlight removed (green → normal) is REVERTED, not a change — so the badge clears', () => {
+    const prev = snap(ROW_A, fmtAt(2, GREEN))   // GT-A was marked added (green)
+    const next = snap(ROW_A)                      // coordinator removed the green
+    const d = diffSheetData(prev, next)
+    expect(d.changes).toHaveLength(0)             // no notification
+    expect(d.reverted.map((r) => r.course_code)).toEqual(['GT-A'])
+  })
+
+  it('first sync and identical re-syncs expose an empty reverted list', () => {
+    expect(diffSheetData(null, snap(ROW_A)).reverted).toEqual([])
+    expect(diffSheetData(snap(ROW_A), snap(ROW_A)).reverted).toEqual([])
+  })
+
   it('pairs multiple same-course moves on one date sensibly (time-move vs room-move)', () => {
     // CB has two sessions on 9 Jun: 09:15 @D1 and 12:15 @D2.
     // After: 09:15→10:45 stays in D1 (time move); 12:15 stays at 12:15 but D2→E1 (room move).

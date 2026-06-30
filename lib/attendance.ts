@@ -1,7 +1,7 @@
 import type { Course } from './types'
 
 export interface CourseAttendanceStat {
-  code: string; name: string; area: string | null; instructor: string | null
+  code: string; name: string; instructor: string | null
   room: string | null; credits: string | null
   total: number; held: number; present: number; absent: number; left: number; expected: number
 }
@@ -36,7 +36,7 @@ export function summarizeAttendance(
     if (!st) {
       const cr = parseInt(s.credits ?? '') || 0
       st = {
-        code: s.course_code, name: s.course_name, area: s.area, instructor: s.instructor,
+        code: s.course_code, name: s.course_name, instructor: s.instructor,
         room: s.room, credits: s.credits,
         total: 0, held: 0, present: 0, absent: 0, left: 0, expected: cr * 8,
       }

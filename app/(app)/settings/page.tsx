@@ -269,7 +269,7 @@ export default function SettingsPage() {
         {/* Google Calendar sync (API write — needs an Internal @iimk OAuth app) */}
         <Section title="Google Calendar sync (Android)">
           <p className="text-xs text-muted-foreground mb-2">
-            <b className="text-foreground">Best on Android.</b> Sign in with your <b className="text-foreground">@iimk.ac.in</b> account to auto-sync your schedule straight into Google Calendar — updates within minutes, no manual refresh.
+            <b className="text-foreground">Best on Android.</b> Sign in with your <b className="text-foreground">college email ID </b> account to auto-sync your schedule straight into Google Calendar — updates within minutes, no manual refresh.
           </p>
           {gcalConnected ? (
             <div className="flex items-center gap-3 rounded-xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 p-4">

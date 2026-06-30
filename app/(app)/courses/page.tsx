@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo, useTransition } from 'react'
-import { Search, BookOpen, Plus, Check, MapPin, User, ChevronDown, X, Pencil, GraduationCap } from 'lucide-react'
+import { Search, BookOpen, Plus, Check, MapPin, User, X, Pencil, GraduationCap } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useAttendanceStats } from '@/lib/hooks'
@@ -11,13 +10,9 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Course } from '@/lib/types'
 
-// Order areas logically
-const AREA_ORDER = ['ECO', 'FAC', 'HLAM', 'IS', 'DSOM', 'MM', 'OBHR', 'SM', 'FIN Core', 'LSM Core', 'FIN Elective', 'LSM Elective', 'Other']
-
 interface CourseGroup {
   code: string
   name: string
-  area: string | null
   instructor: string | null
   credits: string | null
   room: string | null
@@ -25,7 +20,7 @@ interface CourseGroup {
 }
 
 interface CourseStat {
-  code: string; name: string; area: string | null; instructor: string | null; room: string | null; credits: string | null
+  code: string; name: string; instructor: string | null; room: string | null; credits: string | null
   total: number; held: number; present: number; absent: number; left: number; expected: number
 }
 
@@ -46,7 +41,6 @@ export default function CoursesPage() {
   const [allCourses, setAllCourses] = useState<Course[]>([])
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
-  const [openAreas, setOpenAreas] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [pendingCode, setPendingCode] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -108,7 +102,6 @@ export default function CoursesPage() {
       map.set(c.course_code, {
         code: c.course_code,
         name: c.course_name,
-        area: c.area,
         instructor: c.instructor,
         credits: c.credits,
         room: c.room,
@@ -129,31 +122,12 @@ export default function CoursesPage() {
     )
   }, [courseGroups, search])
 
-  // Group filtered courses by area, ordered.
-  const byArea = useMemo(() => {
-    const map = new Map<string, CourseGroup[]>()
-    for (const g of filtered) {
-      const area = g.area || 'Other'
-      if (!map.has(area)) map.set(area, [])
-      map.get(area)!.push(g)
-    }
-    const orderedKeys = [
-      ...AREA_ORDER.filter((a) => map.has(a)),
-      ...[...map.keys()].filter((a) => !AREA_ORDER.includes(a)),
-    ]
-    return orderedKeys.map((area) => ({ area, groups: map.get(area)! }))
-  }, [filtered])
-
-  const searching = search.trim().length > 0
-
-  function toggleArea(area: string) {
-    setOpenAreas((prev) => {
-      const next = new Set(prev)
-      if (next.has(area)) next.delete(area)
-      else next.add(area)
-      return next
-    })
-  }
+  // A flat, code-sorted list (area grouping was removed — see #7). Used by the admin browse list and,
+  // if re-enabled, the self-service picker.
+  const sortedGroups = useMemo(
+    () => [...filtered].sort((a, b) => a.code.localeCompare(b.code)),
+    [filtered]
+  )
 
   async function setGroupSelected(group: CourseGroup, select: boolean) {
     if (!userId) { toast.error('Session not ready, please wait.'); return }
@@ -258,7 +232,7 @@ export default function CoursesPage() {
 
       {isAdmin ? (
         <div className="flex-1 overflow-y-auto px-4 py-3">
-          <AdminCourseList byArea={byArea} loading={loading} />
+          <AdminCourseList groups={sortedGroups} loading={loading} />
         </div>
       ) : (
       <>
@@ -271,46 +245,21 @@ export default function CoursesPage() {
           )
         ) : loading ? (
           Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
-        ) : byArea.length === 0 ? (
+        ) : sortedGroups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <BookOpen size={40} strokeWidth={1} />
             <p className="mt-3 text-sm">{search ? 'No courses match your search' : 'No courses available yet'}</p>
           </div>
         ) : (
-          byArea.map(({ area, groups }) => {
-            const open = searching || openAreas.has(area)
-            const selectedInArea = groups.filter((g) => selectedCodes.has(g.code)).length
-            return (
-              <Collapsible key={area} open={open} onOpenChange={() => !searching && toggleArea(area)}>
-                <CollapsibleTrigger title={`Show/hide ${area} courses`} className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted transition-colors">
-                  <span className="text-sm font-bold text-foreground">{area}</span>
-                  <span className="text-xs text-muted-foreground">({groups.length})</span>
-                  {selectedInArea > 0 && (
-                    <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded-full">
-                      {selectedInArea} picked
-                    </span>
-                  )}
-                  <ChevronDown
-                    size={16}
-                    className={cn('ml-auto text-muted-foreground transition-transform', open && 'rotate-180')}
-                  />
-                </CollapsibleTrigger>
-                <CollapsiblePanel>
-                  <div className="space-y-2 pt-2 pb-1">
-                    {groups.map((group) => (
-                      <CourseCard
-                        key={group.code}
-                        group={group}
-                        selected={selectedCodes.has(group.code)}
-                        pending={pendingCode === group.code}
-                        onToggle={(sel) => setGroupSelected(group, sel)}
-                      />
-                    ))}
-                  </div>
-                </CollapsiblePanel>
-              </Collapsible>
-            )
-          })
+          sortedGroups.map((group) => (
+            <CourseCard
+              key={group.code}
+              group={group}
+              selected={selectedCodes.has(group.code)}
+              pending={pendingCode === group.code}
+              onToggle={(sel) => setGroupSelected(group, sel)}
+            />
+          ))
         )}
         {showPicker && selectedGroups.length > 0 && <div className="h-24" />}
       </div>
@@ -347,14 +296,14 @@ export default function CoursesPage() {
   )
 }
 
-// Admin (poweruser) view: every course of the selected year, read-only, grouped by area. Admins
-// are enrolled in everything (the user_sessions RPC returns all for them), so this is a browse/
-// reference list — no picking.
-function AdminCourseList({ byArea, loading }: { byArea: { area: string; groups: CourseGroup[] }[]; loading: boolean }) {
+// Admin (poweruser) view: every course of the selected year, read-only, as a flat code-sorted list.
+// Admins are enrolled in everything (the user_sessions RPC returns all for them), so this is a
+// browse/reference list — no picking.
+function AdminCourseList({ groups, loading }: { groups: CourseGroup[]; loading: boolean }) {
   if (loading) {
     return <div className="space-y-2.5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
   }
-  if (byArea.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
         <BookOpen size={40} strokeWidth={1} />
@@ -362,29 +311,20 @@ function AdminCourseList({ byArea, loading }: { byArea: { area: string; groups: 
       </div>
     )
   }
-  const total = byArea.reduce((n, a) => n + a.groups.length, 0)
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">{total} course{total !== 1 ? 's' : ''} · you&apos;re enrolled in all of them (admin)</p>
-      {byArea.map(({ area, groups }) => (
-        <div key={area} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-foreground">{area}</span>
-            <span className="text-xs text-muted-foreground">({groups.length})</span>
+    <div className="space-y-2.5">
+      <p className="text-xs text-muted-foreground">{groups.length} course{groups.length !== 1 ? 's' : ''} · you&apos;re enrolled in all of them (admin)</p>
+      {groups.map((g) => (
+        <div key={g.code} className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
+            {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
           </div>
-          {groups.map((g) => (
-            <div key={g.code} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{g.code}</span>
-                {g.credits && <span className="text-xs text-muted-foreground">{g.credits} cr</span>}
-              </div>
-              <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
-              <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                {g.room && <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full"><MapPin size={10} />Class {g.room}</span>}
-                {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
-              </div>
-            </div>
-          ))}
+          <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{g.name}</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+            {g.room && <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full"><MapPin size={10} />Class {g.room}</span>}
+            {g.instructor && <span className="flex items-center gap-1"><User size={10} />{g.instructor}</span>}
+          </div>
         </div>
       ))}
     </div>
@@ -453,9 +393,7 @@ function CourseCard({
 // sessions (`summary`): a 1st-year's section timetable or a 2nd-year's electives — so the attendance
 // tracker works identically for every year.
 function StaticList({ summary }: { summary: CourseStat[] }) {
-  const ordered = [...summary].sort((a, b) =>
-    (AREA_ORDER.indexOf(a.area || 'Other') - AREA_ORDER.indexOf(b.area || 'Other')) || a.code.localeCompare(b.code)
-  )
+  const ordered = [...summary].sort((a, b) => a.code.localeCompare(b.code))
 
   if (ordered.length === 0) {
     return (
@@ -482,7 +420,6 @@ function StaticList({ summary }: { summary: CourseStat[] }) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">{s.code}</span>
-                  {s.area && <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{s.area}</span>}
                   {s.credits && <span className="text-xs text-muted-foreground">{s.credits} cr</span>}
                 </div>
                 <p className="mt-0.5 text-sm font-semibold text-foreground leading-tight">{s.name}</p>

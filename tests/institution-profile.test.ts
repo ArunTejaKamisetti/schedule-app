@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_PROFILE, classifyBySwatches, colorDistance, qualifierArea, matchesKeyword,
+  DEFAULT_PROFILE, classifyBySwatches, colorDistance, matchesKeyword,
   sectionHeaderRegex, divisionCodeRegex, mergeProfile, rowsToPatch, sanitizeProfilePatch,
   type ColorRules, type InstitutionProfile,
 } from '@/lib/institution-profile'
-import { classifyColor, getArea, getDetailAbbr, parseSheetRows, aliasToScheduleCode } from '@/lib/sheets'
+import { classifyColor, getDetailAbbr, parseSheetRows, aliasToScheduleCode } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { buildSheet, fmtAt } from './helpers'
 import type { CellFormat } from '@/lib/types'
@@ -61,36 +61,15 @@ describe('classifyColor — auto (default) vs custom mode', () => {
   })
 })
 
-// ── catalog: qualifiers / area / alias resolution ────────────────────────────────────────────────
+// ── catalog: cross-sheet alias resolution ────────────────────────────────────────────────────────
 
-describe('getArea/getDetailAbbr via profile', () => {
-  it('resolves area from a CUSTOM catalog, not the IIM-K default', () => {
-    const profile: InstitutionProfile = {
-      ...DEFAULT_PROFILE,
-      catalog: { areaMap: { XX: 'Marketing' }, aliases: {}, qualifiers: [] },
-    }
-    expect(getArea('XX', profile)).toBe('Marketing')
-    expect(getArea('GT', profile)).toBe('Other') // IIM-K's GT→ECO no longer applies
-  })
-
+describe('getDetailAbbr via profile', () => {
   it('applies a custom alias for cross-sheet matching', () => {
     const profile: InstitutionProfile = {
       ...DEFAULT_PROFILE,
-      catalog: { areaMap: {}, aliases: { ZZZ: 'QQ' }, qualifiers: [] },
+      catalog: { aliases: { ZZZ: 'QQ' } },
     }
     expect(getDetailAbbr('ZZZ', profile)).toBe('QQ')
-  })
-})
-
-describe('qualifierArea — ordered substring (whitespace/dash-insensitive)', () => {
-  const quals = DEFAULT_PROFILE.catalog.qualifiers
-  it('checks Core before plain elective', () => {
-    expect(qualifierArea('CV (FIN-Core)', quals)).toBe('FIN Core')
-    expect(qualifierArea('FC (FIN)', quals)).toBe('FIN Elective')
-  })
-  it('tolerates spacing differences and ignores non-matches', () => {
-    expect(qualifierArea('PF (FIN Core)', quals)).toBe('FIN Core')
-    expect(qualifierArea('FINANCE', quals)).toBeNull() // no parens → not a qualifier match
   })
 })
 
@@ -181,37 +160,31 @@ describe('schedule keeps its own code; roster maps onto it', () => {
     expect(rtm.course_name).toBe('RTM')      // displayed as the schedule wrote it
     // A roster "RM" maps onto "RTM", so it matches this session.
     expect(aliasToScheduleCode('RM')).toBe('RTM')
-    // And the area resolves from the schedule code (RTM is in the area map; RM is not).
-    expect(getArea('RTM')).toBe('MM')
   })
 })
 
-describe('multi-word venue cell via a whole-cell alias (replaces the old override)', () => {
+describe('multi-word venue cell via a whole-cell alias (normalised at parse time)', () => {
   // Admin maps the messy schedule cell to the real course code: "YMHC MN Common Room" → "YMHC".
   const profile: InstitutionProfile = {
     ...DEFAULT_PROFILE,
     catalog: { ...DEFAULT_PROFILE.catalog, aliases: { ...DEFAULT_PROFILE.catalog.aliases, 'YMHC MN Common Room': 'YMHC' } },
   }
 
-  it('schedule keeps & shows the venue text, but area/details resolve via the alias', () => {
+  it('the parser stores the REAL code "YMHC" with the venue text as its room', () => {
     const rows = [
       ['DATE', 'TIME', 'PGP', 'PGP'],
       ['', '', 'D1', 'D2'],
       ['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', 'GT-A'],
     ]
     const parsed = parseSheetRows(rows, { profile })
-    const ymhc = parsed.find((p) => p.course_code === 'YMHC MN Common Room')!
-    expect(ymhc).toBeTruthy()                                  // schedule text kept (cleaned), not "YMHC"
-    expect(getArea(ymhc.course_code, profile)).toBe('HLAM')    // resolved via alias → YMHC → HLAM
-    expect(getDetailAbbr(ymhc.course_code, profile)).toBe('YMHC') // details lookup via alias
+    const ymhc = parsed.find((p) => p.course_code === 'YMHC')!
+    expect(ymhc).toBeTruthy()                                     // normalised to the real code
+    expect(ymhc.room).toBe('MN Common Room')                      // leftover text → the room
+    expect(getDetailAbbr(ymhc.course_code, profile)).toBe('YMHC') // details lookup is now trivial
   })
 
-  it('a roster "YMHC" maps onto the schedule cell text, so they match', () => {
-    expect(aliasToScheduleCode('YMHC', profile.catalog.aliases)).toBe('YMHC MN Common Room')
-  })
-
-  it('case/whitespace-insensitive: the alias still resolves a differently-spaced cell', () => {
-    expect(getArea('YMHC   MN  Common Room', profile)).toBe('HLAM')
+  it('a roster "YMHC" needs no remap — it already equals the stored code (timing-independent)', () => {
+    expect(aliasToScheduleCode('YMHC', profile.catalog.aliases)).toBe('YMHC')
   })
 })
 
@@ -242,10 +215,10 @@ describe('mergeProfile + rowsToPatch', () => {
     const merged = mergeProfile(DEFAULT_PROFILE, rowsToPatch(rows))
     expect(merged.colors.mode).toBe('custom')
     expect(merged.colors.cancelled).toEqual(['#abcdef'])
-    expect(merged.catalog.areaMap).toBe(DEFAULT_PROFILE.catalog.areaMap) // untouched concern kept
+    expect(merged.catalog.aliases).toEqual(DEFAULT_PROFILE.catalog.aliases) // untouched concern kept
   })
   it('replaces a saved catalog concern, keeping other concerns at their defaults', () => {
-    const merged = mergeProfile(DEFAULT_PROFILE, { catalog: { areaMap: {}, aliases: { A: 'B' }, qualifiers: [] } })
+    const merged = mergeProfile(DEFAULT_PROFILE, { catalog: { aliases: { A: 'B' } } })
     expect(merged.catalog.aliases).toEqual({ A: 'B' })
     expect(merged.colors).toEqual(DEFAULT_PROFILE.colors)
   })
@@ -258,12 +231,9 @@ describe('sanitizeProfilePatch — coerces + rejects bad input', () => {
     expect(patch.colors?.cancelled).toEqual(['#ff0000', '#abc123'])
     expect(patch.colors?.tolerance).toBe(DEFAULT_PROFILE.colors.tolerance) // out-of-range → default
   })
-  it('drops blank catalog entries and malformed qualifiers', () => {
-    const patch = sanitizeProfilePatch({
-      catalog: { areaMap: { GT: 'ECO', '': 'X', BAD: '' }, aliases: {}, qualifiers: [{ contains: '(FIN)', area: 'FIN' }, { contains: '', area: 'Z' }] },
-    })
-    expect(patch.catalog?.areaMap).toEqual({ GT: 'ECO' })
-    expect(patch.catalog?.qualifiers).toEqual([{ contains: '(FIN)', area: 'FIN' }])
+  it('drops blank alias entries', () => {
+    const patch = sanitizeProfilePatch({ catalog: { aliases: { RTM: 'RM', '': 'X', BAD: '' } } })
+    expect(patch.catalog?.aliases).toEqual({ RTM: 'RM' })
   })
   it('rejects an uncompilable division regex, keeping the default', () => {
     const patch = sanitizeProfilePatch({ sections: { divisionCodePattern: '([', sectionLabels: ['a', 'b'], sectionHeaderPrefix: 'Sec' } })
@@ -271,7 +241,7 @@ describe('sanitizeProfilePatch — coerces + rejects bad input', () => {
     expect(patch.sections?.sectionLabels).toEqual(['A', 'B']) // upper-cased
   })
   it('keeps a whole-cell alias (e.g. a venue) in the alias map', () => {
-    const patch = sanitizeProfilePatch({ catalog: { areaMap: {}, aliases: { 'YMHC MN Common Room': 'YMHC', '': 'X' }, qualifiers: [] } })
+    const patch = sanitizeProfilePatch({ catalog: { aliases: { 'YMHC MN Common Room': 'YMHC', '': 'X' } } })
     expect(patch.catalog?.aliases).toEqual({ 'YMHC MN Common Room': 'YMHC' })
   })
   it('ignores unknown top-level keys', () => {

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useWindowCourses, useAttendance, useNotes } from '@/lib/hooks'
 import { resolveViewYear } from '@/lib/year-view'
+import { CHANGE_LABEL, recentlyChanged } from '@/lib/changes'
 import { AdminYearSwitch } from '@/components/admin-year-switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -34,17 +35,8 @@ function timeMin(t: string | null): number {
   return h * 60 + (m || 0)
 }
 
-const CHANGE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // highlight a change for 3 days after the edit
-const CHANGE_LABEL: Record<string, string> = {
-  added: 'New', moved: 'Moved', updated: 'Updated',
-  rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
-}
-
 // Canonical timetable slots live in lib/free-time (shared with Compare + Free Time Analysis).
-function recentlyChanged(c: Course): boolean {
-  if (!c.last_changed_at || !c.change_kind) return false
-  return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
-}
+// Change-highlight window + labels live in lib/changes (shared with Today + the sync cleanup).
 
 export default function SchedulePage() {
   const { userId, user } = useSession()

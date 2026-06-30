@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseSheetRows, getArea, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
-  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode,
+  parseSheetRows, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
+  parseCourseDetails, parseFullDate, detailKey, cleanCode, normalizeScheduleCode,
 } from '@/lib/sheets'
 import { buildSheet } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
@@ -215,23 +215,6 @@ describe('parseCourseDetails — section layout (faculty per section group)', ()
   })
 })
 
-describe('getArea — programme qualifiers take priority over base-abbr map', () => {
-  it('routes FIN/LSM core & elective by qualifier, not base abbreviation', () => {
-    expect(getArea('CV (FIN-Core)')).toBe('FIN Core')   // not FAC (CV→FAC in AREA_MAP)
-    expect(getArea('DS-A (LSM-Core)')).toBe('LSM Core')
-    expect(getArea('FC (FIN)')).toBe('FIN Elective')
-    expect(getArea('HSCM (LSM)')).toBe('LSM Elective')
-  })
-  it('falls back to the area map for plain electives', () => {
-    expect(getArea('GT-A')).toBe('ECO')
-    expect(getArea('SBRA')).toBe('SM')
-    expect(getArea('CV')).toBe('FAC')
-  })
-  it('returns Other for unknown codes', () => {
-    expect(getArea('ZZZ-Q')).toBe('Other')
-  })
-})
-
 describe('getBaseAbbr / getDetailAbbr — cross-sheet matching', () => {
   it('strips section suffixes and qualifiers for the base', () => {
     expect(getBaseAbbr('GT-A')).toBe('GT')
@@ -300,18 +283,16 @@ describe('venue / multi-word schedule cells', () => {
     expect(cleanCode('GT-A')).toBe('GT-A')
     expect(cleanCode('  ST   (FIN-Core) ')).toBe('ST (FIN-Core)')
   })
-  it('parser stores the cleaned SCHEDULE text as the code (alias/area resolution is configured per profile)', () => {
+  it('with NO venue alias configured, the parser keeps the cleaned schedule text as the code', () => {
     const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', '', '', '']])
-    const parsed = parseSheetRows(data.sheet1)[0]
-    expect(parsed.course_code).toBe('YMHC MN Common Room')  // the schedule's own text, cleaned
+    const parsed = parseSheetRows(data.sheet1)[0]   // default profile has no venue alias
+    expect(parsed.course_code).toBe('YMHC MN Common Room')
     expect(parsed.course_name).toBe('YMHC MN Common Room')
   })
-})
-
-describe('AREA_MAP sanity', () => {
-  it('covers the headline electives', () => {
-    expect(AREA_MAP['GT']).toBe('ECO')
-    expect(AREA_MAP['SBRA']).toBe('SM')
-    expect(AREA_MAP['RTM']).toBe('MM')
+  it('normalizeScheduleCode: a venue alias (multi-word key) yields the real code + leftover as room', () => {
+    const aliases = { 'YMHC MN Common Room': 'YMHC' }
+    expect(normalizeScheduleCode('YMHC\nMN Common Room', aliases)).toEqual({ code: 'YMHC', room: 'MN Common Room' })
+    expect(normalizeScheduleCode('GT-A', aliases)).toEqual({ code: 'GT-A' })          // plain cell unchanged
+    expect(normalizeScheduleCode('RTM', { RTM: 'RM' })).toEqual({ code: 'RTM' })       // single-token alias = not a venue
   })
 })

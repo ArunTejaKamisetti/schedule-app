@@ -1,7 +1,7 @@
 {
   "name": "KampusSchedule",
   "short_name": "KampusSchedule",
-  "description": "Your IIM-K schedule, mess menu, bus timings, attendance & friends — in one place.",
+  "description": "Your schedule, mess menu, bus timings, attendance & friends — in one place.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f0f12",

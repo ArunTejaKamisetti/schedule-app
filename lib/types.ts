@@ -9,7 +9,6 @@ export interface Course {
   end_time: string | null
   room: string | null
   credits: string | null
-  area: string | null
   sheet_tab: string
   sheet_row_index: number | null
   year?: number | null          // 1 or 2 (defaults to 2 in the DB)

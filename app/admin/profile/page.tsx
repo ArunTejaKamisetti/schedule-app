@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   classifyBySwatches, type InstitutionProfile, type ColorRules, type CatalogConfig,
-  type SectionConfig, type KeywordConfig, type QualifierRule,
+  type SectionConfig, type KeywordConfig,
 } from '@/lib/institution-profile'
 
 type Tab = 'colors' | 'catalog' | 'sections'
@@ -189,36 +189,23 @@ function CatalogTab({ value, onChange, onSave }: { value: CatalogConfig; onChang
   return (
     <>
       <div style={card}>
-        <span style={labelStyle}>Area map — course abbreviation → area</span>
-        <p style={hint}>Used to group a student&apos;s courses by area. Leave empty to show raw codes with no grouping.</p>
-        <PairEditor
-          pairs={value.areaMap} keyLabel="Abbr (e.g. GT)" valLabel="Area (e.g. ECO)"
-          onChange={(areaMap) => onChange({ ...value, areaMap })}
-        />
-      </div>
-
-      <div style={card}>
         <span style={labelStyle}>Course aliases — schedule code → roster / Course-Details code</span>
         <p style={hint}>
           When the same course is written differently in the schedule vs the roster (or Course Details).
-          The schedule&apos;s text is what&apos;s shown; the roster&apos;s form is matched onto it, and area /
-          details resolve through the alias. Matching ignores case and extra spaces.
+          Matching ignores case and extra spaces.
         </p>
         <p style={hint}>
-          • Different abbreviation: schedule <code>RTM</code> → roster <code>RM</code> (section suffixes
-          kept, e.g. RTM-A → RM-A). &nbsp;• Messy venue cell: schedule
-          <code> YMHC MN Common Room</code> → <code>YMHC</code> (so a student enrolled in YMHC sees it).
+          • <b>Different abbreviation</b> (single-word key): schedule <code>RTM</code> → roster
+          <code> RM</code>. The schedule keeps its own code for display; the roster&apos;s form maps onto
+          it (section suffixes kept, e.g. RTM-A → RM-A). &nbsp;• <b>Venue cell</b> (multi-word key):
+          schedule <code>YMHC MN Common Room</code> → <code>YMHC</code>. The class is stored as
+          <code> YMHC</code> with <i>MN Common Room</i> as its room, so a student enrolled in YMHC sees
+          it — no matter when you add this rule.
         </p>
         <PairEditor
           pairs={value.aliases} keyLabel="Schedule (RTM / YMHC MN Common Room)" valLabel="Roster (RM / YMHC)"
           onChange={(aliases) => onChange({ ...value, aliases })}
         />
-      </div>
-
-      <div style={card}>
-        <span style={labelStyle}>Programme qualifiers — text in the code → area (checked top to bottom)</span>
-        <p style={hint}>For programme-tagged courses, e.g. &quot;(FIN-Core)&quot; → FIN Core. Put more specific rules first.</p>
-        <QualifierEditor qualifiers={value.qualifiers} onChange={(qualifiers) => onChange({ ...value, qualifiers })} />
       </div>
 
       <SaveBar onSave={onSave} />
@@ -289,23 +276,6 @@ function PairEditor({ pairs, keyLabel, valLabel, onChange }: { pairs: Record<str
         </div>
       ))}
       <button onClick={() => onChange({ ...pairs, '': '' })} style={smallBtn}>+ Add</button>
-    </div>
-  )
-}
-
-function QualifierEditor({ qualifiers, onChange }: { qualifiers: QualifierRule[]; onChange: (q: QualifierRule[]) => void }) {
-  const set = (i: number, over: Partial<QualifierRule>) => onChange(qualifiers.map((q, j) => (j === i ? { ...q, ...over } : q)))
-  return (
-    <div>
-      {qualifiers.map((q, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-          <input value={q.contains} onChange={(e) => set(i, { contains: e.target.value })} placeholder="(FIN-Core)" style={{ ...inputStyle, flex: 1 }} />
-          <span style={{ color: '#94a3b8' }}>→</span>
-          <input value={q.area} onChange={(e) => set(i, { area: e.target.value })} placeholder="FIN Core" style={{ ...inputStyle, flex: 1 }} />
-          <button onClick={() => onChange(qualifiers.filter((_, j) => j !== i))} style={{ ...delBtn, padding: '4px 8px' }}>×</button>
-        </div>
-      ))}
-      <button onClick={() => onChange([...qualifiers, { contains: '', area: '' }])} style={smallBtn}>+ Add</button>
     </div>
   )
 }

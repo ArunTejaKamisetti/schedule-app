@@ -1,80 +1,59 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { format, addDays, parseISO } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, Bell, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useCommonEvents, useAttendance, useNotes } from '@/lib/hooks'
 import { resolveViewYear, coursesForYear } from '@/lib/year-view'
+import { termDates } from '@/lib/term-window'
+import { CHANGE_LABEL, recentlyChanged } from '@/lib/changes'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AdminYearSwitch } from '@/components/admin-year-switch'
 import { InstallPrompt } from '@/components/install-prompt'
 import { AlertsPanel } from '@/components/alerts-panel'
 import type { Course } from '@/lib/types'
-import { MESS, MESS_NOTE, type Meal, type DayMenu } from '@/lib/mess'
-import { BUS, BUS_NOTE, BUS_STOPS, type BusTrip } from '@/lib/bus'
+import type { Meal, DayMenu } from '@/lib/mess'
+import type { BusTrip } from '@/lib/bus'
 
-// Bus/mess come from the DB (admin paste-import) with the built-in constants as the fallback, so
-// the UI is byte-identical whether or not an admin has uploaded. One shared fetch, module-cached;
-// setState only in an async callback so there's no loading flash and no set-state-in-effect.
+// Bus/mess come from the DB (admin paste-import). There is NO built-in fallback — if an admin hasn't
+// uploaded, the tab shows an "ask your admin" empty state (so a fork doesn't ship IIM-K's menu). One
+// shared fetch, module-cached; `loaded` distinguishes "still fetching" from "genuinely empty".
 interface BusMess { bus: BusTrip[]; busStops: string[]; busNote: string; mess: Record<string, DayMenu>; messNote: string }
-const BUS_MESS_DEFAULT: BusMess = { bus: BUS, busStops: BUS_STOPS, busNote: BUS_NOTE, mess: MESS, messNote: MESS_NOTE }
+const BUS_MESS_EMPTY: BusMess = { bus: [], busStops: [], busNote: '', mess: {}, messNote: '' }
 let busMessCache: BusMess | null = null
 
-function useBusMess(): BusMess {
-  const [data, setData] = useState<BusMess>(busMessCache ?? BUS_MESS_DEFAULT)
+function useBusMess(): BusMess & { loaded: boolean } {
+  const [data, setData] = useState<BusMess>(busMessCache ?? BUS_MESS_EMPTY)
+  const [loaded, setLoaded] = useState(busMessCache != null)
   useEffect(() => {
-    if (busMessCache) return
+    if (busMessCache) return // already fetched by a prior mount — initial state reflects it
     let active = true
     fetch('/api/bus-mess')
       .then((r) => r.json())
       .then((d: { bus?: { note?: string; stops?: string[]; trips?: BusTrip[] }; mess?: { note?: string; menu?: Record<string, DayMenu> } }) => {
         busMessCache = {
-          bus: d?.bus?.trips ?? BUS,
-          busStops: d?.bus?.stops ?? BUS_STOPS,
-          busNote: d?.bus?.note ?? BUS_NOTE,
-          mess: d?.mess?.menu ?? MESS,
-          messNote: d?.mess?.note ?? MESS_NOTE,
+          bus: d?.bus?.trips ?? [],
+          busStops: d?.bus?.stops ?? [],
+          busNote: d?.bus?.note ?? '',
+          mess: d?.mess?.menu ?? {},
+          messNote: d?.mess?.note ?? '',
         }
-        if (active) setData(busMessCache)
+        if (active) { setData(busMessCache); setLoaded(true) }
       })
-      .catch(() => {})
+      .catch(() => { if (active) setLoaded(true) })
     return () => { active = false }
   }, [])
-  return data
+  return { ...data, loaded }
 }
 
 const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 type HomeTab = 'courses' | 'mess' | 'bus'
 
-// Full term window — every day is selectable on the scroll rail.
-const TERM_START = '2026-06-08'
-const TERM_END = '2026-08-31'
-const CHANGE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // highlight a change for 3 days after the edit
-
-const CHANGE_LABEL: Record<string, string> = {
-  added: 'New', moved: 'Moved', updated: 'Updated',
-  rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
-}
-
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-
-function recentlyChanged(c: Course): boolean {
-  if (!c.last_changed_at || !c.change_kind) return false
-  return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
-}
-
-// All ISO dates across the term, in order.
-const TERM_DATES: string[] = (() => {
-  const out: string[] = []
-  let d = parseISO(TERM_START)
-  const end = parseISO(TERM_END)
-  while (d <= end) { out.push(localISO(d)); d = addDays(d, 1) }
-  return out
-})()
 
 export default function TodayPage() {
   const { userId, user, unreadCount } = useSession()
@@ -94,8 +73,18 @@ export default function TodayPage() {
   const railRef = useRef<HTMLDivElement>(null)
 
   const todayISO = localISO(new Date())
-  const initialDate = TERM_DATES.includes(todayISO) ? todayISO : TERM_DATES[0]
-  const [selectedDate, setSelectedDate] = useState(initialDate)
+  // The date rail follows the UPLOADED schedule: it spans the user's own sessions + their year's
+  // common events (so 1st/2nd year each track their own sheet), not a hardcoded term window.
+  const railDates = useMemo(
+    () => termDates([...mySessions, ...commonEvents].map((c) => c.session_date), todayISO),
+    [mySessions, commonEvents, todayISO]
+  )
+  const initialDate = railDates.includes(todayISO) ? todayISO : railDates[0]
+  // `picked` is empty until the user taps a day; the effective day defaults to today / term-start.
+  // Deriving it (instead of snapping via a state-setting effect) keeps it correct even though the
+  // term window isn't known on the first render, before sessions load.
+  const [picked, setPicked] = useState('')
+  const selectedDate = picked || initialDate
   const [tab, setTab] = useState<HomeTab>('courses')
   const [alertsOpen, setAlertsOpen] = useState(false)
 
@@ -113,10 +102,11 @@ export default function TodayPage() {
       behavior: smooth ? 'smooth' : 'auto', block: 'nearest', inline: 'center',
     })
   }
-  // Center the selected day on first paint.
+  // Centre the rail on the effective day once the term window resolves (initialDate changes when
+  // sessions load). No setState here.
   useEffect(() => { scrollToDate(initialDate, false) }, [initialDate])
 
-  function jumpToday() { setSelectedDate(initialDate); scrollToDate(initialDate, true) }
+  function jumpToday() { setPicked(initialDate); scrollToDate(initialDate, true) }
 
   const allForDate = useMemo(() => {
     const merged = [...mySessions, ...commonEvents].filter((c) => c.session_date === selectedDate)
@@ -153,7 +143,7 @@ export default function TodayPage() {
             <p className="text-sm text-muted-foreground">{format(selDate, 'MMMM d, yyyy')}</p>
           </div>
           <div className="flex items-center gap-2.5">
-            {selectedDate !== todayISO && TERM_DATES.includes(todayISO) && (
+            {selectedDate !== todayISO && railDates.includes(todayISO) && (
               <button onClick={jumpToday} title="Jump back to today"
                 className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1.5 rounded-lg">
                 <CalendarCheck size={14} /> Today
@@ -187,13 +177,13 @@ export default function TodayPage() {
         {/* Date rail — drives Courses (classes) and Mess (weekday). Bus is the same daily. */}
         {tab !== 'bus' && (
         <div ref={railRef} className="mt-3 flex gap-1 overflow-x-auto pb-1 no-scrollbar scroll-smooth">
-          {TERM_DATES.map((iso, i) => {
+          {railDates.map((iso, i) => {
             const d = parseISO(iso)
             const isToday = iso === todayISO
             const isActive = iso === selectedDate
             const count = countByDate[iso] ?? 0
             const hasChange = changedDates.has(iso)
-            const newMonth = i === 0 || parseISO(TERM_DATES[i - 1]).getMonth() !== d.getMonth()
+            const newMonth = i === 0 || parseISO(railDates[i - 1]).getMonth() !== d.getMonth()
             return (
               <div key={iso} className="flex items-stretch shrink-0">
                 {newMonth && (
@@ -205,7 +195,7 @@ export default function TodayPage() {
                 )}
                 <button
                   data-iso={iso}
-                  onClick={() => setSelectedDate(iso)}
+                  onClick={() => setPicked(iso)}
                   className={cn(
                     'flex flex-col items-center px-2.5 py-2 rounded-xl transition-colors min-w-[48px]',
                     isActive ? 'bg-indigo-600 text-white'
@@ -401,11 +391,11 @@ function Onboarding() {
       <div className="relative bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 px-5 pt-7 pb-6 text-center text-white">
         <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent" />
         <div className="relative inline-flex flex-col items-center justify-center w-16 h-16 rounded-2xl bg-white/15 backdrop-blur ring-1 ring-white/30">
-          <span className="text-lg font-extrabold leading-none">IIMK</span>
+          <span className="text-lg font-extrabold leading-none">College Campus App</span>
           <span className="text-[9px] font-bold tracking-[0.2em] text-amber-200 leading-none mt-0.5">— S —</span>
         </div>
         <h2 className="relative mt-3 text-xl font-extrabold">Welcome to KampusSchedule</h2>
-        <p className="relative mt-1 text-sm text-white/85">Your IIM-K campus, organised — schedule, attendance, mess, bus &amp; friends.</p>
+        <p className="relative mt-1 text-sm text-white/85">Your campus, organised — schedule, attendance, mess, bus &amp; friends.</p>
       </div>
       {/* Body */}
       <div className="bg-card px-5 py-4">
@@ -431,18 +421,31 @@ function Onboarding() {
   )
 }
 
+// Shown when an admin hasn't uploaded bus/mess yet (no built-in fallback any more).
+function AdminUploadEmpty({ what, icon: Icon }: { what: string; icon: typeof UtensilsCrossed }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
+      <Icon size={30} strokeWidth={1.5} className="mb-2 opacity-60" />
+      <p className="text-sm font-medium text-foreground">No {what} yet</p>
+      <p className="text-xs mt-1">Ask your admin to upload the {what}.</p>
+    </div>
+  )
+}
+
 // ─── Mess menu (day-wise) ─────────────────────────────────────────────────────
 function MessView({ weekday, dateLabel }: { weekday: string; dateLabel: string }) {
-  const { mess, messNote } = useBusMess()
+  const { mess, messNote, loaded } = useBusMess()
+  if (!loaded) return <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
+  if (Object.keys(mess).length === 0) return <AdminUploadEmpty what="mess menu" icon={UtensilsCrossed} />
   const menu = mess[weekday]
-  if (!menu) return <p className="text-sm text-muted-foreground text-center py-10">No menu.</p>
+  if (!menu) return <p className="text-sm text-muted-foreground text-center py-10">No menu for {dateLabel}.</p>
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Mess menu · <b className="text-foreground">{dateLabel}</b></p>
       <MealCard title="Breakfast" emoji="🍳" meal={menu.breakfast} />
       <MealCard title="Lunch" emoji="🍛" meal={menu.lunch} />
       <MealCard title="Dinner" emoji="🍽️" meal={menu.dinner} />
-      <p className="text-[11px] text-muted-foreground text-center pt-1">{messNote}</p>
+      {messNote && <p className="text-[11px] text-muted-foreground text-center pt-1">{messNote}</p>}
     </div>
   )
 }
@@ -452,14 +455,14 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
     <div className="rounded-xl border border-border bg-card p-4">
       <h3 className="text-sm font-bold text-foreground mb-2">{emoji} {title}</h3>
       <div className="flex flex-wrap gap-1.5">
-        {meal.veg.map((v) => (
-          <span key={v} className="text-xs text-foreground bg-muted px-2 py-1 rounded-lg">{v}</span>
+        {meal.veg.map((v, i) => (
+          <span key={`${v}-${i}`} className="text-xs text-foreground bg-muted px-2 py-1 rounded-lg">{v}</span>
         ))}
       </div>
       {meal.special && meal.special.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {meal.special.map((v) => (
-            <span key={v} className="text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-2 py-1 rounded-lg">{v}</span>
+          {meal.special.map((v, i) => (
+            <span key={`${v}-${i}`} className="text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-2 py-1 rounded-lg">{v}</span>
           ))}
         </div>
       )}
@@ -469,7 +472,7 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
 
 // ─── Bus schedule ─────────────────────────────────────────────────────────────
 function BusView() {
-  const { bus, busStops, busNote } = useBusMess()
+  const { bus, busStops, busNote, loaded } = useBusMess()
   const [from, setFrom] = useState('All')
   // Snapshot "now" (IST) once when the tab mounts — reading the clock during render is impure and
   // the next-bus highlight only needs the time at open. Computed in a state initializer (runs once).
@@ -486,6 +489,9 @@ function BusView() {
   useEffect(() => {
     nextRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' })
   }, [from, nextIdx])
+
+  if (!loaded) return <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+  if (bus.length === 0) return <AdminUploadEmpty what="bus timings" icon={Bus} />
 
   return (
     <div className="space-y-3">
@@ -525,7 +531,7 @@ function BusView() {
           )
         })}
       </div>
-      <p className="text-[11px] text-muted-foreground text-center pt-1">{busNote}</p>
+      {busNote && <p className="text-[11px] text-muted-foreground text-center pt-1">{busNote}</p>}
     </div>
   )
 }

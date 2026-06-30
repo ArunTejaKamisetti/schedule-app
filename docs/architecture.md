@@ -61,7 +61,7 @@ sheet links, rosters, bus/mess) with **no code changes and no secrets in code**.
 - **Supabase**: Postgres (data + RLS), Auth (Google OAuth, domain-restricted), SQL RPCs.
 - **Tailwind v4** + a small **shadcn/base-ui** component layer; `next-themes` for dark mode; `sonner` toasts; `lucide-react` icons.
 - **SWR** for the client data layer (one shared, deduped cache).
-- **googleapis** (Sheets read + per-user Calendar write), **ical-generator** (.ics feed), **web-push** (VAPID), **exceljs** (roster / .xlsx schedule upload).
+- **googleapis** (Sheets read + per-user Calendar write), **ical-generator** (.ics feed), **web-push** (VAPID), **exceljs** (admin roster `.xlsx` upload).
 - **Vitest** + an in-process **pglite** harness that runs the real SQL migrations for DB/RLS/RPC tests.
 
 ## 1.5 Key architectural decisions
@@ -85,17 +85,20 @@ sheet links, rosters, bus/mess) with **no code changes and no secrets in code**.
 6. **Runtime configuration, no hardcoded data.** Google client + token, per-term sheet links, rosters
    and bus/mess all live in the **DB** (set via the admin console), so a new term/institution needs
    no code or env change. Env carries only infra secrets (Supabase, `CRON_SECRET`, optional VAPID).
-7. **One ingest path for every schedule input.** A Google sync and an admin `.xlsx` upload funnel
-   through the same `ingestSheetData` (diff → upsert/reconcile → highlight → snapshot → notify).
+7. **One ingest path for every sync.** Manual "Sync now" and the scheduled cron funnel through the
+   same `ingestSheetData` (diff → upsert/reconcile → highlight/clear → snapshot → notify). The
+   schedule is read **only** from the admin-pasted Google Sheet link — there is no `.xlsx` schedule
+   upload (it was removed; the online sheet is the single source of truth). Rosters still upload as
+   `.xlsx`.
 
 ## 1.6 The three core data flows
 
-**(A) Sync / ingest** (admin "Sync now", cron, or `.xlsx` upload):
+**(A) Sync / ingest** (admin "Sync now" or cron):
 ```
 Google Sheet ──fetch(values+formatting+merges)──► RawSheetData
-   ──diff vs last snapshot (per source_key)──► added / removed / moved / cancelled / updated
+   ──diff vs last snapshot (per source_key)──► added / removed / moved / cancelled / updated / reverted
    ──upsert into `courses` (+ enrich from Course Details) ──► reconcile stale rows
-   ──write 3-day change highlights──► save snapshot to `sync_log`
+   ──write 3-day change highlights, clear reverted + aged-out ones──► save snapshot to `sync_log`
    ──notify affected users (push + alert rows) ──► sync connected Google Calendars
 ```
 
@@ -170,10 +173,11 @@ Core tables (see `supabase/migrations/` for exact DDL; `bootstrap_dev_schema.sql
 - **`users`** `id = auth.uid()`, `email`, `role` (`student|admin`), `share_code` (public, for friends),
   `display_name`, `year` (1|2, null⇒2), `section` (1st-yr), `push_subscription`, notify prefs.
 - **`courses`** — **one row per session**: `id`, `course_code`, `course_name`, `instructor`, `day_of_week`,
-  `session_date`, `start_time`, `end_time`, `room`, `credits`, `area`, `sheet_tab`, `year`,
+  `session_date`, `start_time`, `end_time`, `room`, `credits`, `sheet_tab`, `year`,
   `source_key`, `is_cancelled`, `is_common`, `event_kind` (`class|exam|common|event`),
-  `change_kind`/`change_note`/`last_changed_at` (3-day highlight), `last_synced_at`.
-  Unique key `(course_code, sheet_tab, session_date, start_time)`.
+  `change_kind`/`change_note`/`last_changed_at` (3-day highlight, cleared on revert/age-out), `last_synced_at`.
+  Unique key `(course_code, sheet_tab, session_date, start_time)`. *(The `area` column still exists in
+  the DB but is vestigial — no longer written or read; course grouping by area was removed.)*
 - **`enrollments`** — `(user_id, course_code, year)`, PK `(user_id, course_code)`. The normalized pick.
 - **`attendance`** `(user_id, course_id, status, marked_at)`, PK `(user_id, course_id)`.
 - **`notes`** `(user_id, course_id, session_date, body)`, PK `(user_id, course_id)`.
@@ -217,7 +221,7 @@ Core tables (see `supabase/migrations/` for exact DDL; `bootstrap_dev_schema.sql
 | `GET/POST/DELETE /api/friends` | session (service + authz) | list / add-by-share-code (mutual) / remove (both directions) |
 | `GET /api/friends/compare` | session + **friendship check** | both schedules for the date-compare view |
 | `GET /api/friends/free-time` | session | You + accepted friends, compact `busyByDate` |
-| `GET /api/bus-mess` | none (**edge-cached**) | bus + mess (DB blob, else built-in fallback) |
+| `GET /api/bus-mess` | none (**edge-cached**) | bus + mess (DB blob, else **empty** → "ask your admin to upload" state; no built-in default) |
 | `GET /api/source-sheet` | session | the user's year's **admin-pasted** sheet URL (now via `resolveSheetSources`) |
 | `GET /api/calendar?userId=` | capability token | `.ics` subscription feed (cookieless exception) |
 | `/api/calendar/google/{connect,callback,status,disconnect}` | session | per-user Google Calendar OAuth + sync |
@@ -241,14 +245,23 @@ Core tables (see `supabase/migrations/` for exact DDL; `bootstrap_dev_schema.sql
 4. **Diff** (`diffSheetData`): compares old↔new **by slot** `session_date::start_time::sheet_tab`
    (reading colour from the **exact** parsed cell, never the wrong column). Emits
    added / removed / cancelled / reinstated / in-place-update / **moved** (a remove+add of the same
-   course matched on date, preferring same-section⇒time-change then same-time⇒room-change).
-5. **Ingest** (`ingestSheetData`): enrich from Course Details (name/credits/faculty + `area`), dedupe,
+   course matched on date, preferring same-section⇒time-change then same-time⇒room-change) and
+   **reverted** (a coordinator's green "added" mark removed → the badge should be cleared, no notification).
+5. **Ingest** (`ingestSheetData`): enrich from Course Details (name/credits/faculty), dedupe,
    **upsert** `courses`, **reconcile** stale rows *scoped to `source_key`* (a broken 1st-yr sheet can
-   never touch 2nd-yr), write 3-day change highlights, **save the snapshot before** the slow notify/
-   calendar tail. A no-op sync (identical sheet) short-circuits cheaply.
+   never touch 2nd-yr), **write** fresh 3-day change highlights and **clear** reverted + aged-out ones
+   (so "New"/"Moved" badges stop piling up), **save the snapshot before** the slow notify/calendar tail.
+   An unchanged sheet still re-runs the idempotent upsert — that's how a newly-saved Institution-Profile
+   change (e.g. a venue alias) applies to existing rows; only an empty parse short-circuits, and
+   notify/calendar fire only on real changes.
 
-**Area/abbr mapping** (`AREA_MAP`, `getDetailAbbr`, `ABBR_ALIAS`, `isYmhcVenue`) resolves cross-sheet
-naming quirks; one-off admin data issues are handled explicitly and documented inline.
+**Cross-sheet aliasing** (Institution-Profile `catalog.aliases`, via `getDetailAbbr`,
+`aliasToScheduleCode`, `normalizeScheduleCode`) resolves "two spellings = one course". Two kinds,
+distinguished by whether the alias **key** has a space: a **plain code alias** (`RTM`→`RM`, single-token
+key) keeps the schedule's own code and maps the roster onto it; a **venue / whole-cell alias**
+(`YMHC MN Common Room`→`YMHC`, multi-word key) is normalised **at parse time** to the real code with the
+leftover text as the room, so it matches the roster's clean code no matter when the alias was added.
+*(The old hardcoded area map, programme-qualifiers, and the `isYmhcVenue`/override mechanism were removed.)*
 
 ## 2.6 Enrollment resolution (`lib/enrollment.ts`)
 
@@ -331,15 +344,28 @@ roll-up), so they update the instant a class is marked.
   index is the backstop for a concurrent race).
 - **`ROSTER_MANAGED`** in `courses/page.tsx` gates the 2nd-year self-service picker (off by default —
   the roster is authoritative for year/section, so there's intentionally no user-facing year/section
-  setter). Every student's Courses tab is the unified attendance-tracker "My Courses"; the year
-  switch is admin-only.
+  setter). Every student's Courses tab is the unified attendance-tracker "My Courses" (a flat,
+  code-sorted list — no area grouping); the year switch is admin-only.
+- **The Today date-rail follows the data, not a hardcoded term.** `termDates()` (`lib/term-window.ts`)
+  spans the user's own sessions + their year's exams (±a few days), so 1st/2nd-year each track their own
+  uploaded sheet. Don't reintroduce `TERM_START`/`TERM_END` constants.
+- **No built-in bus/mess.** `lib/site-content.ts` returns **empty** when nothing's uploaded; the Today
+  tab shows an "ask your admin to upload" state. A fork must upload its own data (don't re-add IIM-K's).
+- **Change highlights live for 3 days** (`CHANGE_WINDOW_MS`, `lib/changes.ts`, shared by Today/Schedule
+  and the sync's clear step). The UI gates the badge on this window; the sync *writes* fresh highlights
+  and *clears* reverted/aged-out ones, so they don't accumulate. Keep the window in one place.
+- **No `.xlsx` schedule upload.** The schedule comes only from the admin-pasted Google Sheet link
+  (`/admin/schedule` is paste-link + "Sync now"). `lib/xlsx-schedule.ts` was removed; `exceljs` remains
+  only for the roster upload.
 - **Build now type-checks** (no `ignoreBuildErrors`). A stale `.next/` can carry a dead generated route
   type — `rm -rf .next` before a verification build if you see a phantom `*/route.js` type error.
 
 ## 2.14 Testing
 
-- **Pure logic** is isolated into `lib/*` and unit-tested (auth, sheets parse, diff, clashes,
-  free-time, attendance, retention, notify-format, sheet-url, bus-mess-validate, env, gcal plan).
+- **Pure logic** is isolated into `lib/*` and unit-tested (auth, sheets parse + venue normalise, diff
+  incl. reverted, clashes, free-time, attendance, retention, notify-format, sheet-url, bus-mess-validate,
+  env, gcal plan, institution-profile, **term-window**, **changes**).
 - **DB/RLS/RPC** behaviour is tested against a real Postgres-compatible **pglite** instance that runs
   the actual migrations (`tests/db-harness.ts`): `db-rls`, `db-user-sessions`, `db-reconcile`,
-  `db-google-integration`. 210 tests total; `npm test`, `npm run lint`, `npm run build` are green.
+  `db-google-integration`, `db-institution-profile`. 244 tests total; `npm test`, `npm run lint`,
+  `npm run build` are green.
