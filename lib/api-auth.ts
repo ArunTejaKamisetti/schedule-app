@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from './supabase/server'
+import { createClient, createServiceClient } from './supabase/server'
+import { hasAppAccess } from './access'
 
 // Server-side identity for API routes. The signed-in user is resolved from the Supabase session
 // COOKIE — the ONLY trusted source of identity. API routes must NEVER read a `userId` from the
@@ -15,11 +16,16 @@ export interface AuthedSession {
   email: string | null
 }
 
-// Resolve the authenticated session, or null if the caller isn't signed in.
+// Resolve the authenticated session, or null if the caller isn't signed in OR isn't allowed to use
+// the app. The roster gate (hasAppAccess) denies a signed-in non-admin who isn't on the current
+// roster — e.g. a departed student who stayed logged in — across EVERY API route, so they can't
+// keep adding friends / writing data after the admin removes them. Uses the service client because
+// `roster` is admin/service-only under RLS; fails open inside hasAppAccess on a transient error.
 export async function getAuthedSession(): Promise<AuthedSession | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
+  if (!(await hasAppAccess(createServiceClient(), user.email ?? null))) return null
   return { supabase, userId: user.id, email: user.email ?? null }
 }
 

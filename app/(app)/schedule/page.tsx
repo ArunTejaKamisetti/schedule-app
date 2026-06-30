@@ -6,7 +6,7 @@ import { format, addDays, parseISO, startOfWeek } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useWindowCourses, useAttendance, useNotes } from '@/lib/hooks'
-import { resolveViewYear } from '@/lib/year-view'
+import { resolveViewYear, adminCollapseSessions } from '@/lib/year-view'
 import { CHANGE_LABEL, recentlyChanged } from '@/lib/changes'
 import { AdminYearSwitch } from '@/components/admin-year-switch'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -82,11 +82,16 @@ export default function SchedulePage() {
   // Courses to display for the week: my picks + common events (exams) for the year being viewed —
   // the window fetch returns both years' rows. Students see their own year; an admin (whose picks
   // span both years) additionally scopes their classes to the selected year so the grid stays clean.
+  // For an admin, adminCollapseSessions then folds the all-sections 1st-year duplicates into one
+  // room-less entry per class (there is no single classroom for someone enrolled in every section).
   const visible = useMemo(
-    () => windowCourses.filter((c) =>
-      c.is_common
-        ? (c.year ?? 2) === viewYear
-        : selectedIds.has(c.id) && (!isAdmin || (c.year ?? 2) === viewYear)),
+    () => adminCollapseSessions(
+      windowCourses.filter((c) =>
+        c.is_common
+          ? (c.year ?? 2) === viewYear
+          : selectedIds.has(c.id) && (!isAdmin || (c.year ?? 2) === viewYear)),
+      isAdmin
+    ),
     [windowCourses, selectedIds, viewYear, isAdmin]
   )
 

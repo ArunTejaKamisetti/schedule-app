@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { INSTITUTION_SHORT_NAME } from '@/lib/branding'
 
 interface Sync {
   source_key: string | null
@@ -57,7 +58,7 @@ export default function AdminDashboard() {
 
   return (
     <main style={{ maxWidth: 820, margin: '0 auto', padding: '32px 20px' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Dashboard</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{INSTITUTION_SHORT_NAME} Dashboard</h1>
       <p style={{ color: '#64748b', fontSize: 14, marginBottom: 24 }}>
         Schedule, roster, and student status at a glance.
       </p>

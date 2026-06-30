@@ -47,7 +47,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Identity comes from the authenticated Supabase session (set by the
     // /auth/callback route). The API derives the user from that session cookie.
     fetch('/api/user', { method: 'POST' })
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        // Signed in but no longer on the roster (departed/removed) → sign out with a clear message
+        // instead of leaving them in a half-working app.
+        if (r.status === 403) {
+          const body = await r.json().catch(() => null)
+          if (body?.code === 'not_enrolled') {
+            await fetch('/auth/signout', { method: 'POST' }).catch(() => {})
+            window.location.assign('/sign-in?error=not_enrolled')
+          }
+          return null
+        }
+        return r.ok ? r.json() : null
+      })
       .then((u: User | null) => {
         if (!u) return
         setUser(u)

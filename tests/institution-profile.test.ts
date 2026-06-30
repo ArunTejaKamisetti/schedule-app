@@ -170,7 +170,7 @@ describe('multi-word venue cell via a whole-cell alias (normalised at parse time
     catalog: { ...DEFAULT_PROFILE.catalog, aliases: { ...DEFAULT_PROFILE.catalog.aliases, 'YMHC MN Common Room': 'YMHC' } },
   }
 
-  it('the parser stores the REAL code "YMHC" with the venue text as its room', () => {
+  it('the parser stores the REAL code "YMHC" but DISPLAYS the full cell as the name', () => {
     const rows = [
       ['DATE', 'TIME', 'PGP', 'PGP'],
       ['', '', 'D1', 'D2'],
@@ -179,7 +179,8 @@ describe('multi-word venue cell via a whole-cell alias (normalised at parse time
     const parsed = parseSheetRows(rows, { profile })
     const ymhc = parsed.find((p) => p.course_code === 'YMHC')!
     expect(ymhc).toBeTruthy()                                     // normalised to the real code
-    expect(ymhc.room).toBe('MN Common Room')                      // leftover text → the room
+    expect(ymhc.course_name).toBe('YMHC MN Common Room')          // full cell text → the display name
+    expect(ymhc.room).toBe('D1')                                  // the column's own room — never rewritten
     expect(getDetailAbbr(ymhc.course_code, profile)).toBe('YMHC') // details lookup is now trivial
   })
 

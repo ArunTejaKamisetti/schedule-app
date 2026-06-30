@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useSession } from '@/components/session-provider'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { INSTITUTION_SHORT_NAME } from '@/lib/branding'
 
 // Web push is OPTIONAL — if no VAPID public key is configured at build, the push UI is hidden and
 // subscribing is skipped (NEXT_PUBLIC_* is inlined at build, so this is a static check).
@@ -346,7 +347,7 @@ export default function SettingsPage() {
         </Section>
 
         <p className="text-center text-[11px] text-muted-foreground/70 pt-1 pb-2">
-          © Developed by Arun Teja Kamisetti, IIM K
+          © Developed by Arun Teja Kamisetti, {INSTITUTION_SHORT_NAME}
         </p>
       </div>
     </div>

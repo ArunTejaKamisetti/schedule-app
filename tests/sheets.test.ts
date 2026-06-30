@@ -289,9 +289,9 @@ describe('venue / multi-word schedule cells', () => {
     expect(parsed.course_code).toBe('YMHC MN Common Room')
     expect(parsed.course_name).toBe('YMHC MN Common Room')
   })
-  it('normalizeScheduleCode: a venue alias (multi-word key) yields the real code + leftover as room', () => {
+  it('normalizeScheduleCode: a venue alias (multi-word key) yields the real code + the full cell as the display name', () => {
     const aliases = { 'YMHC MN Common Room': 'YMHC' }
-    expect(normalizeScheduleCode('YMHC\nMN Common Room', aliases)).toEqual({ code: 'YMHC', room: 'MN Common Room' })
+    expect(normalizeScheduleCode('YMHC\nMN Common Room', aliases)).toEqual({ code: 'YMHC', name: 'YMHC MN Common Room' })
     expect(normalizeScheduleCode('GT-A', aliases)).toEqual({ code: 'GT-A' })          // plain cell unchanged
     expect(normalizeScheduleCode('RTM', { RTM: 'RM' })).toEqual({ code: 'RTM' })       // single-token alias = not a venue
   })

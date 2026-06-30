@@ -48,20 +48,19 @@ function isVenueAliasKey(key: string): boolean {
   return /\s/.test(key.trim())
 }
 
-// Resolve a SCHEDULE cell to its stored course code (+ room, for a venue cell). For a VENUE alias
-// whose key matches the whole cell, store the real code ('YMHC') and move the leftover text into the
-// room ('MN Common Room') — so the class matches the roster's clean 'YMHC' regardless of when the
-// alias was added, and displays cleanly. A plain cell (or a plain code alias) keeps its own code.
+// Resolve a SCHEDULE cell to its stored course code (+ display name, for a venue cell). For a VENUE
+// alias whose key matches the whole cell, store the real code ('YMHC') so the class matches the
+// roster's clean 'YMHC' regardless of when the alias was added — but DISPLAY the cell verbatim (the
+// `name`, e.g. 'YMHC MN Common Room'). The room is left to the section/division column (the parser
+// uses `s.room`); the alias never rewrites it. A plain cell (or a plain code alias) keeps its own code.
 export function normalizeScheduleCode(
   raw: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases
-): { code: string; room?: string } {
+): { code: string; name?: string } {
   const cleaned = cleanCode(raw)
   const n = normCode(cleaned)
   for (const [k, target] of Object.entries(aliases)) {
     if (!isVenueAliasKey(k) || normCode(k) !== n) continue
-    // The target is normally the leading token of the cell; the rest is the venue/room.
-    const room = normCode(cleaned).startsWith(normCode(target)) ? cleaned.slice(target.length).trim() : ''
-    return { code: target, room: room || undefined }
+    return { code: target, name: cleaned }
   }
   return { code: cleaned }
 }
@@ -399,13 +398,14 @@ function parseScheduleMatrix(
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
       // A plain cell stores the SCHEDULE's own cleaned code (the source of truth for display); a
-      // VENUE cell ("YMHC\nMN Common Room") normalises to the real code ("YMHC") with the leftover
-      // text as its room, so it matches the roster's clean "YMHC". Details resolve through the code.
-      const { code, room } = normalizeScheduleCode(raw, profile.catalog.aliases)
+      // VENUE cell ("YMHC\nMN Common Room") normalises to the real code ("YMHC") for roster matching
+      // but keeps the FULL cell as its display name, and keeps the column's own room (s.room) — the
+      // alias never invents a room. Details resolve through the code.
+      const { code, name } = normalizeScheduleCode(raw, profile.catalog.aliases)
       results.push({
-        course_code: code, course_name: code, instructor: '',
+        course_code: code, course_name: name ?? code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
-        room: room ?? s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
+        room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
         is_common: false, event_kind: 'class',
       })
     }

@@ -2,10 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOrCreateUser } from '@/lib/user'
 import { applyRosterOnSignIn } from '@/lib/roster'
+import { NotEnrolledError } from '@/lib/access'
 import { emailDomainAllowed, isAdminEmail, parseAdminEmails } from '@/lib/auth'
 import { getGoogleConfig } from '@/lib/google-auth'
 
-const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || 'iimk.ac.in'
+// The college email domain that may sign in. Required + validated at boot (lib/env.ts), so there is
+// no institution-specific fallback here — an empty value safely denies everyone rather than letting
+// a hardcoded domain through.
+const ALLOWED_DOMAIN = process.env.ALLOWED_EMAIL_DOMAIN || ''
 
 // Google → Supabase → here. Exchanges the OAuth code for a session, enforces the
 // college email domain server-side, then ensures the app user row exists.
@@ -34,7 +38,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/sign-in?error=domain`)
   }
 
-  await getOrCreateUser(user.id, user.email ?? null)
+  // Create/refresh the app user — UNLESS they aren't on the roster (and aren't an admin), in which
+  // case getOrCreateUser refuses and we bounce them to sign-in with a clear message rather than
+  // creating a ghost row. Mirrors the proxy/API roster gate (lib/access.ts).
+  try {
+    await getOrCreateUser(user.id, user.email ?? null)
+  } catch (err) {
+    if (err instanceof NotEnrolledError) {
+      await supabase.auth.signOut()
+      return NextResponse.redirect(`${origin}/sign-in?error=not_enrolled`)
+    }
+    throw err
+  }
   // Re-apply the roster on EVERY sign-in (idempotent) — so a student who signed in BEFORE their
   // roster was uploaded gets auto-filled on their next login, not only at upload time.
   await applyRosterOnSignIn(createServiceClient(), user.id, user.email ?? null).catch(() => {})

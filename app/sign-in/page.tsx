@@ -6,6 +6,7 @@ import { ALLOWED_EMAIL_DOMAIN, INSTITUTION_SHORT_NAME } from '@/lib/branding'
 
 const ERRORS: Record<string, string> = {
   domain: `Please sign in with your @${ALLOWED_EMAIL_DOMAIN} college account.`,
+  not_enrolled: 'Your account isn’t on the current student roster. If you think this is a mistake, contact your admin.',
   auth: 'Sign-in failed. Please try again.',
   missing_code: 'Sign-in was interrupted. Please try again.',
 }

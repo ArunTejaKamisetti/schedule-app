@@ -36,8 +36,9 @@ export interface CatalogConfig {
   //   • a plain code alias (single-token key): 'RTM' → 'RM' (also covers 'RTM-A' → 'RM-A'). The
   //     schedule keeps its own code for display; the roster's form maps onto it (aliasToScheduleCode).
   //   • a venue / whole-cell alias (multi-word key): 'YMHC MN Common Room' → 'YMHC'. The parser
-  //     stores the real code ('YMHC') and moves the leftover text into the room, so the class matches
-  //     the roster's 'YMHC' no matter when the alias was added (normalizeScheduleCode).
+  //     stores the real code ('YMHC') so the class matches the roster's 'YMHC' no matter when the
+  //     alias was added, but DISPLAYS the cell verbatim ('YMHC MN Common Room') and leaves the room to
+  //     the section/division column (normalizeScheduleCode).
   // Matching is case- and whitespace-insensitive.
   aliases: Record<string, string>
 }

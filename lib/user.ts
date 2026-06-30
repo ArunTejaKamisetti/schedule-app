@@ -1,6 +1,7 @@
 import { createServiceClient } from './supabase/server'
 import { isAdminEmail, parseAdminEmails, normalizeEmail, emailUsername } from './auth'
 import { applyRosterOnSignIn } from './roster'
+import { hasAppAccess, NotEnrolledError } from './access'
 import type { User } from './types'
 
 function generateShareCode(): string {
@@ -22,6 +23,13 @@ export async function getOrCreateUser(userId: string, email?: string | null): Pr
     .single()
 
   const normEmail = normalizeEmail(email) || null
+
+  // Roster gate: a non-admin whose email is on NO current roster (once both rosters exist) has left
+  // or was never enrolled. Deny — and crucially DON'T (re)create their row, so a pruned student who
+  // stayed logged in can't silently reappear in the DB and keep repopulating "Review & remove".
+  if (!(await hasAppAccess(supabase, normEmail))) {
+    throw new NotEnrolledError()
+  }
 
   if (existing) {
     const patch: Record<string, unknown> = { last_seen_at: new Date().toISOString() }

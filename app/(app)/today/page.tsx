@@ -6,7 +6,7 @@ import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Che
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
 import { useUserSessions, useCommonEvents, useAttendance, useNotes } from '@/lib/hooks'
-import { resolveViewYear, coursesForYear } from '@/lib/year-view'
+import { resolveViewYear, coursesForYear, adminCollapseSessions } from '@/lib/year-view'
 import { termDates } from '@/lib/term-window'
 import { CHANGE_LABEL, recentlyChanged } from '@/lib/changes'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -65,7 +65,12 @@ export default function TodayPage() {
   // Shared, deduped data — no per-mount/per-focus refetch (see lib/hooks.ts). The admin's session
   // feed spans both years, so scope it to the year being viewed; a student's is already their year.
   const { courses: allMySessions, isLoading: loadingMine } = useUserSessions(userId)
-  const mySessions = useMemo(() => (isAdmin ? coursesForYear(allMySessions, year) : allMySessions), [isAdmin, allMySessions, year])
+  // Admin: scope to the year being viewed, then collapse the all-sections 1st-year duplicates to one
+  // room-less entry per class (see adminCollapseSessions). Students get their own sessions untouched.
+  const mySessions = useMemo(
+    () => (isAdmin ? adminCollapseSessions(coursesForYear(allMySessions, year), true) : allMySessions),
+    [isAdmin, allMySessions, year]
+  )
   const { events: commonEvents } = useCommonEvents(userId ? year : null)
   const { map: attendance, setStatus: markAttendance } = useAttendance(userId)
   const { map: noteMap } = useNotes(userId)
