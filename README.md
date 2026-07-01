@@ -1,12 +1,16 @@
 # KampusSchedule
 
-KampusSchedule is a public web app for IIM-K students to track classes, attendance, transport, and friends' schedules in one place.
+KampusSchedule is a web app for a college's students to track classes, attendance,
+transport, mess, and friends' schedules in one place. It's built to be **forked once
+per college** — the name, email domain, courses, sections, and colours are all
+configuration, so standing it up for a new campus is setup, not a rewrite.
 
-## Public Availability
+## Availability
 
-- The app is intended to be publicly accessible over the web.
-- Students can open it directly and start using core features without mandatory sign-in.
-- Host it on your own domain or on Vercel to share it with your campus.
+- Hosted on Vercel (free tier) and shared via a single URL.
+- Students sign in with their college Google account; the roster auto-fills their
+  schedule. Non-college accounts are rejected.
+- Runs at ₹0 for ~2,000+ students on free tiers.
 
 ## Key Features
 
@@ -25,32 +29,21 @@ KampusSchedule is a public web app for IIM-K students to track classes, attendan
 - Google Sheets API (course source sync)
 - VAPID Web Push notifications
 
-## Local Development
+## Quick start
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Create `.env.local` from `.env.example` and fill required values.
-3. Run the app:
-   ```bash
-   npm run dev
-   ```
-4. Open `http://localhost:3000`.
+Full, step-by-step instructions (accounts, database, Google login, deploy) are in
+**[SETUP.md](SETUP.md)** — the plug-and-play guide for a new college. In short:
 
-## Deployment
-
-Deploy on Vercel:
-
-```bash
-npm run build
-vercel --prod
-```
-
-Set all environment variables in your host (see `.env.example` and `SETUP.md`).
+1. `npm install`
+2. Create a Supabase project and run **[`supabase/setup.sql`](supabase/setup.sql)**
+   (the entire database, one paste).
+3. Create a Google OAuth client and enable Google login in Supabase.
+4. `cp .env.example .env.local` and fill it in.
+5. `npm run dev` → open `http://localhost:3000` and sign in (an `ADMIN_EMAILS`
+   account becomes admin automatically).
+6. Deploy with `npx vercel --prod --yes` and set the same env vars in Vercel.
 
 ## Setup Docs
 
-For full production setup (Supabase schema, Google OAuth, sync cron, and push notifications), see:
-
-- `SETUP.md`
+- **[SETUP.md](SETUP.md)** — complete plug-and-play setup for a new deployment.
+- `docs/iimk-deployment/` — the design/decision record behind the architecture.
