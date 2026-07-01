@@ -478,6 +478,16 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
           ))}
         </div>
       )}
+      {meal.extras && meal.extras.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-dashed border-border">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Extras · paid</p>
+          <div className="flex flex-wrap gap-1.5">
+            {meal.extras.map((v) => (
+              <span key={v} className="text-xs font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 px-2 py-1 rounded-lg">{v}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

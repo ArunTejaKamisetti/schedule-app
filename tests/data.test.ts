@@ -27,6 +27,20 @@ describe('MESS data', () => {
   it('offers a boiled egg at every breakfast', () => {
     for (const d of DAYS) expect(MESS[d].breakfast.special).toContain('Boiled Egg')
   })
+
+  it('lists paid extras on lunch/dinner where the menu has them (and none on breakfast)', () => {
+    // Breakfast never carries an Extras row.
+    for (const d of DAYS) expect(MESS[d].breakfast.extras).toBeUndefined()
+    // Spot-check the confirmed Extras cells.
+    expect(MESS.MON.lunch.extras).toEqual(['Fish Fry'])
+    expect(MESS.TUE.lunch.extras).toEqual(['Chicken Megestic', 'Fish Fry'])
+    expect(MESS.SAT.dinner.extras).toEqual(['Chicken Masala'])
+    expect(MESS.SUN.dinner.extras).toEqual(['Chicken Biriyani'])
+    // Sunday lunch and Thu/Fri dinner have no Extras.
+    expect(MESS.SUN.lunch.extras).toBeUndefined()
+    expect(MESS.THU.dinner.extras).toBeUndefined()
+    expect(MESS.FRI.dinner.extras).toBeUndefined()
+  })
 })
 
 describe('BUS data', () => {
