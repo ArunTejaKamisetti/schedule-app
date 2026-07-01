@@ -38,19 +38,21 @@ describe('parseSheetRows — schedule matrix', () => {
     expect(gt.start_time).toBe('09:15')
     expect(gt.end_time).toBe('10:30')
     expect(gt.room).toBe('D1')          // the division code IS the room
-    expect(gt.sheet_tab).toBe('PGP-29 D1')
+    expect(gt.sheet_tab).toBe('D1')     // identity = the division code ALONE (not "PGP-29 D1")
     expect(gt.day_of_week).toBe('TUE')
     expect(gt.is_common).toBe(false)
     expect(gt.event_kind).toBe('class')
   })
 
-  it('maps each section column to its own programme label', () => {
+  it('keys each column by its division code ALONE, ignoring the programme row above it', () => {
     const data = buildSheet([
       ['Tuesday, 9 June, 2026', '09.15-10.30', 'GT-A', 'IAPM-A', 'ST (FIN-Core)', 'PSM (LSM-Core)'],
     ])
     const rows = parseSheetRows(data.sheet1)
-    expect(rows.find((r) => r.course_code === 'ST (FIN-Core)')!.sheet_tab).toBe('PGPFIN06 E1')
-    expect(rows.find((r) => r.course_code === 'PSM (LSM-Core)')!.sheet_tab).toBe('PGPLSM06 E2')
+    // sheet_tab is the LAST header row (E1/E2), NOT "PGPFIN06 E1" — so editing the programme row
+    // never re-keys a class (that was the mass-phantom-"Moved" bug).
+    expect(rows.find((r) => r.course_code === 'ST (FIN-Core)')!.sheet_tab).toBe('E1')
+    expect(rows.find((r) => r.course_code === 'PSM (LSM-Core)')!.sheet_tab).toBe('E2')
   })
 
   it('parses dotted, colon and spaced time ranges identically', () => {

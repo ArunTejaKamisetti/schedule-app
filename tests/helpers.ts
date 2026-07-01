@@ -13,7 +13,7 @@ export function makeCourse(over: Partial<Course> = {}): Course {
     end_time: '10:30',
     room: 'D1',
     credits: '3',
-    sheet_tab: 'PGP-29 D1',
+    sheet_tab: 'D1',
     sheet_row_index: 5,
     is_cancelled: false,
     is_common: false,

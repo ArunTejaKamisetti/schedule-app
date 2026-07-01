@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { diffSheetData } from '@/lib/diff'
 import { buildSheet, fmtAt, plainRow } from './helpers'
-import type { CellFormat } from '@/lib/types'
+import type { CellFormat, RawSheetData } from '@/lib/types'
 
 const RED: CellFormat = { bgColor: '#f4cccc', strikethrough: false }
 const GREEN: CellFormat = { bgColor: '#d9ead3', strikethrough: false }
@@ -25,6 +25,21 @@ describe('diffSheetData', () => {
   it('identical snapshots produce no changes', () => {
     const prev = snap(ROW_A)
     const next = snap(ROW_A)
+    expect(diffSheetData(prev, next).changes).toHaveLength(0)
+  })
+
+  it('editing the programme row above the division codes produces NO phantom moves', () => {
+    // Regression for the mass-"Moved" bug: a class's identity is `date+time+sheet_tab`, and sheet_tab
+    // is now the division code ALONE. So relabelling the programme header (PGP-29 → anything) must not
+    // re-key any class. Same division codes + same classes, only the programme row differs.
+    const body = ['Tuesday, 9 June, 2026', '09.15-10.30', 'GT-A', 'IAPM-A', 'ST (FIN-Core)', 'PSM (LSM-Core)']
+    const blank = (): CellFormat[] => Array.from({ length: 6 }, () => ({ bgColor: null, strikethrough: false }))
+    const mk = (programmes: string[]): RawSheetData => ({
+      sheet1: [['DATE', 'TIME', ...programmes], ['', '', 'D1', 'D2', 'E1', 'E2'], body],
+      sheet2: [], sheet1_format: [blank(), blank(), blank()], fetched_at: '2026-06-09T00:00:00Z',
+    })
+    const prev = mk(['PGP-29', 'PGP-29', 'PGPFIN06', 'PGPLSM06'])
+    const next = mk(['PGP 2026', 'PGP 2026', 'FINANCE', 'LSM']) // programme labels rewritten
     expect(diffSheetData(prev, next).changes).toHaveLength(0)
   })
 
@@ -134,10 +149,10 @@ describe('diffSheetData', () => {
     const prev = snap(row)
     const next = snap(row, fmtAt(3, RED))
     const d = diffSheetData(prev, next)
-    const d1 = d.upserts.find((u) => u.sheet_tab === 'PGP-29 D1' && u.course_code === 'GUEST')
-    const d2 = d.upserts.find((u) => u.sheet_tab === 'PGP-29 D2' && u.course_code === 'GUEST')
+    const d1 = d.upserts.find((u) => u.sheet_tab === 'D1' && u.course_code === 'GUEST')
+    const d2 = d.upserts.find((u) => u.sheet_tab === 'D2' && u.course_code === 'GUEST')
     expect(d1?.is_cancelled).toBe(false)   // D1 cell is normal
     expect(d2?.is_cancelled).toBe(true)    // D2 cell is red
-    expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.new?.sheet_tab)).toEqual(['PGP-29 D2'])
+    expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.new?.sheet_tab)).toEqual(['D2'])
   })
 })

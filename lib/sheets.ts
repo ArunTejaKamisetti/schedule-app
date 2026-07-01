@@ -330,13 +330,15 @@ function parseScheduleMatrix(
     }
   } else {
     const divRe = divisionCodeRegex(profile.sections)
-    let lastProgram = ''
     for (let col = 0; col < sectionRow.length; col++) {
-      const program = (aboveRow[col] || '').trim()
-      if (program) lastProgram = program
       const sc = (sectionRow[col] || '').trim()
       if (!sc || !divRe.test(sc)) continue
-      sections.push({ col, code: sc, label: lastProgram ? `${lastProgram} ${sc}` : sc, room: sc })
+      // A class's identity + classroom is the division code ALONE (D1/E3…) — the LAST (bottom-most)
+      // header row. We deliberately ignore every header row ABOVE it (programme labels like
+      // "PGP-29"/"PGPFIN06", the title, etc.). A class's slot key is `date+time+sheet_tab`, so if the
+      // sheet_tab embedded the programme label, merely editing/reordering that upper row would re-key
+      // every class and the diff would report the ENTIRE sheet as "Moved" (the mass-phantom-move bug).
+      sections.push({ col, code: sc, label: sc, room: sc })
     }
   }
   if (sections.length === 0) return []
