@@ -108,10 +108,20 @@ export function diffSheetData(
     if (!oc) { candAdd.push(nc); continue }
 
     if (oc.course_code === nc.course_code) {
-      // Same course in the same slot — a colour change is the only signal here.
+      // Same course in the same slot — a colour change or a room reassignment is the signal here.
       const os = oldState(oc)
       const ns = newState(nc)
-      if (ns === os) { continue } // unchanged
+      if (ns === os) {
+        // Section-in-cell sheets can move a class to a different classroom without changing its
+        // date/time/section (the slot key), so the room isn't part of the key — compare it here.
+        // In the column/division layouts room ≡ the column identity, so this never false-fires.
+        if ((oc.room || '') !== (nc.room || '')) {
+          const note = `Room ${oc.room || '—'} → ${nc.room || '—'}`
+          tag(nc, 'moved', note)
+          changes.push({ type: 'room_change', old: parsedToPartial(oc), new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name, note })
+        }
+        continue
+      }
       if (ns === 'red') {
         tag(nc, 'cancelled')
         changes.push({ type: 'cancelled', old: parsedToPartial(oc), new: parsedToPartial(nc), course_code: nc.course_code, course_name: nc.course_name })
@@ -130,7 +140,7 @@ export function diffSheetData(
     }
 
     // Different content in the same slot.
-    if (getBaseAbbr(oc.course_code) === getBaseAbbr(nc.course_code)) {
+    if (getBaseAbbr(oc.course_code, profile) === getBaseAbbr(nc.course_code, profile)) {
       // Same course, edited in place (e.g. "GT" → "GT (E1)").
       const note = `Updated: ${oc.course_code} → ${nc.course_code}`
       tag(nc, 'updated', note)

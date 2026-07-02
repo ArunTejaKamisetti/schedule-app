@@ -18,10 +18,11 @@ export async function storeYear2Roster(supabase: SB, entries: Year2RosterEntry[]
   // Map each enrolment code onto the SCHEDULE's code via the catalog alias (e.g. a roster "RM" → the
   // schedule's "RTM"; a roster that already wrote "RTM" is unchanged), so it matches the course_code
   // the schedule stores/shows. The default profile already carries the IIM-K aliases (works pre-config).
-  const aliases = (await loadInstitutionProfile(supabase)).catalog.aliases
+  const profile = await loadInstitutionProfile(supabase)
+  const aliases = profile.catalog.aliases
   const rows = entries.map((e) => ({
     email: e.email, year: 2, section: null,
-    codes: e.codes.map((c) => aliasToScheduleCode(c, aliases)),
+    codes: e.codes.map((c) => aliasToScheduleCode(c, aliases, profile)),
   }))
   return upsertAndApply(supabase, rows)
 }

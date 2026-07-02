@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_PROFILE, classifyBySwatches, colorDistance, matchesKeyword,
   sectionHeaderRegex, divisionCodeRegex, mergeProfile, rowsToPatch, sanitizeProfilePatch,
+  cellSectionRegex, roomHeaderRegex, parseSectionAlloc, sectionSuffixRegex,
   type ColorRules, type InstitutionProfile,
 } from '@/lib/institution-profile'
 import { classifyColor, getDetailAbbr, parseSheetRows, aliasToScheduleCode } from '@/lib/sheets'
 import { diffSheetData } from '@/lib/diff'
 import { buildSheet, fmtAt } from './helpers'
-import type { CellFormat } from '@/lib/types'
+import type { CellFormat, RawSheetData } from '@/lib/types'
 
 // ── closest-bucket colour matcher (custom mode) ──────────────────────────────────────────────────
 
@@ -85,19 +86,60 @@ describe('matchesKeyword — normalised substring', () => {
 
 describe('section + division regexes from profile', () => {
   it('builds a section-header regex from prefix + labels', () => {
-    const re = sectionHeaderRegex({ sectionLabels: ['A', 'B'], sectionHeaderPrefix: 'Sec', divisionCodePattern: '' })
+    const re = sectionHeaderRegex({ ...DEFAULT_PROFILE.sections, sectionLabels: ['A', 'B'], sectionHeaderPrefix: 'Sec' })
     expect(re.test('Sec A')).toBe(true)
     expect(re.test('Sec C')).toBe(false)
     expect('Sec B'.match(re)?.[1]).toBe('B')
   })
   it('supports a different section vocabulary', () => {
-    const re = sectionHeaderRegex({ sectionLabels: ['1', '2', '3'], sectionHeaderPrefix: 'Section', divisionCodePattern: '' })
+    const re = sectionHeaderRegex({ ...DEFAULT_PROFILE.sections, sectionLabels: ['1', '2', '3'], sectionHeaderPrefix: 'Section' })
     expect(re.test('Section 2')).toBe(true)
     expect(re.test('Sec A')).toBe(false)
   })
   it('falls back to the default division pattern when the configured one is invalid', () => {
-    const re = divisionCodeRegex({ sectionLabels: [], sectionHeaderPrefix: '', divisionCodePattern: '([' })
+    const re = divisionCodeRegex({ ...DEFAULT_PROFILE.sections, divisionCodePattern: '([' })
     expect(re.test('D1')).toBe(true) // used the safe fallback, did not throw
+  })
+})
+
+// ── section-in-cell helpers (generic over ANY label vocabulary) ──────────────────────────────────
+
+describe('section-in-cell helpers', () => {
+  const cfg = DEFAULT_PROFILE.sections
+
+  it('cellSectionRegex splits "<course>-<section>" using declared labels, longest-first', () => {
+    const re = cellSectionRegex(cfg)
+    expect('ME-Fin'.match(re)?.slice(1, 3)).toEqual(['ME', 'Fin'])   // multi-char programme cohort
+    expect('BC-LSM'.match(re)?.slice(1, 3)).toEqual(['BC', 'LSM'])
+    expect('DA-B'.match(re)?.slice(1, 3)).toEqual(['DA', 'B'])       // single-letter
+    expect('WORKSHOP-XYZ'.match(re)).toBeNull()                       // XYZ isn't a declared label
+  })
+
+  it('roomHeaderRegex matches classroom headers, not date/time', () => {
+    const re = roomHeaderRegex(cfg)
+    expect(re.test('CR A1')).toBe(true)
+    expect(re.test('MDC C6')).toBe(true)
+    expect(re.test('Date')).toBe(false)
+  })
+
+  it('roomHeaderRegex falls back safely on an uncompilable pattern', () => {
+    const re = roomHeaderRegex({ ...cfg, roomHeaderPattern: '(' })
+    expect(re.test('CR A1')).toBe(true) // used the safe fallback, did not throw
+  })
+
+  it('parseSectionAlloc handles All, concatenated letters, and multi-char labels', () => {
+    const labels = ['A', 'B', 'C', 'FIN', 'LSM']
+    expect(parseSectionAlloc('AB', labels)).toEqual(['A', 'B'])          // concatenated single letters
+    expect(parseSectionAlloc('A, Fin', labels)).toEqual(['A', 'FIN'])    // separated, mixed length
+    expect(parseSectionAlloc('Fin', labels)).toEqual(['FIN'])           // NOT F/I/N
+    expect(parseSectionAlloc('All sections', labels)).toEqual(['A', 'B', 'C', 'FIN', 'LSM'])
+  })
+
+  it('sectionSuffixRegex strips a declared section but leaves a "-Core" qualifier intact', () => {
+    const strip = (s: string) => s.replace(sectionSuffixRegex(cfg), '')
+    expect(strip('GT-A')).toBe('GT')
+    expect(strip('ME-Fin')).toBe('ME')
+    expect(strip('DS-A(LSM-Core)')).toBe('DS(LSM-Core)')  // "-A" before "(" stripped; "-Core" kept
   })
 })
 
@@ -130,6 +172,28 @@ describe('parse + diff with a custom colour profile', () => {
     const next = buildSheet([ROW], [fmtAt(2, RED)])
     const d = diffSheetData(prev, next) // no profile → DEFAULT_PROFILE
     expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.course_code)).toEqual(['GT-A'])
+  })
+})
+
+describe('diff — section-in-cell room reassignment', () => {
+  const cellSheet = (body: string[][]): RawSheetData => ({
+    sheet1: [['Date', 'Time', 'CR A1', 'CR A2'], ...body],
+    sheet2: [], layout: 'section', fetched_at: '2026-06-29T00:00:00Z',
+  })
+
+  it('reports a room change (not a phantom add/remove) when a class swaps rooms at the same time', () => {
+    // ME-Fin: CR A1 → CR A2, DA-B: CR A2 → CR A1 — same date/time/section, different classroom.
+    const prev = cellSheet([['Monday, June 29, 2026', '09.15-10.30', 'ME-Fin', 'DA-B']])
+    const next = cellSheet([['Monday, June 29, 2026', '09.15-10.30', 'DA-B', 'ME-Fin']])
+    const d = diffSheetData(prev, next)
+    expect(d.changes.filter((c) => c.type === 'room_change').map((c) => c.course_code).sort()).toEqual(['DA', 'ME'])
+    expect(d.changes.some((c) => c.type === 'added' || c.type === 'removed')).toBe(false)
+  })
+
+  it('an unchanged re-sync of a section-in-cell sheet reports nothing', () => {
+    const sheet = cellSheet([['Monday, June 29, 2026', '09.15-10.30', 'ME-Fin', 'DA-B']])
+    const d = diffSheetData(sheet, sheet)
+    expect(d.changes).toHaveLength(0)
   })
 })
 
@@ -247,5 +311,29 @@ describe('sanitizeProfilePatch — coerces + rejects bad input', () => {
   })
   it('ignores unknown top-level keys', () => {
     expect(sanitizeProfilePatch({ bogus: 1, colors: { mode: 'auto' } })).toEqual({ colors: { mode: 'auto', cancelled: [], added: [], event: [], tolerance: DEFAULT_PROFILE.colors.tolerance } })
+  })
+
+  it('sanitizes the section-in-cell rules (source, separator, room pattern)', () => {
+    const patch = sanitizeProfilePatch({ sections: {
+      sectionLabels: ['a', 'fin'], sectionHeaderPrefix: 'Sec', divisionCodePattern: '^[A-Z]\\d+$',
+      sectionSource: 'cell', cellSectionSeparator: ' / ', roomHeaderPattern: '^LT\\b',
+    } })
+    expect(patch.sections?.sectionSource).toBe('cell')
+    expect(patch.sections?.cellSectionSeparator).toBe('/')          // trimmed
+    expect(patch.sections?.roomHeaderPattern).toBe('^LT\\b')
+    expect(patch.sections?.sectionLabels).toEqual(['A', 'FIN'])     // upper-cased, multi-char kept
+  })
+  it('rejects a bad room pattern and an unknown source, keeping safe values', () => {
+    const patch = sanitizeProfilePatch({ sections: { sectionSource: 'bogus', roomHeaderPattern: '(' } })
+    expect(patch.sections?.sectionSource).toBe('auto')
+    expect(patch.sections?.roomHeaderPattern).toBe(DEFAULT_PROFILE.sections.roomHeaderPattern)
+    expect(patch.sections?.cellSectionSeparator).toBe(DEFAULT_PROFILE.sections.cellSectionSeparator)
+  })
+  it('an old saved sections row (no new fields) merges to the new defaults', () => {
+    const merged = mergeProfile(DEFAULT_PROFILE, { sections: { sectionLabels: ['A', 'B'] } })
+    expect(merged.sections.sectionLabels).toEqual(['A', 'B'])
+    expect(merged.sections.sectionSource).toBe('auto')
+    expect(merged.sections.cellSectionSeparator).toBe('-')
+    expect(merged.sections.roomHeaderPattern).toBe(DEFAULT_PROFILE.sections.roomHeaderPattern)
   })
 })

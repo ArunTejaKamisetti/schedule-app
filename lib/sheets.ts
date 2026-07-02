@@ -4,7 +4,9 @@ import type { SheetSource } from './sheets-config'
 import { getSheetsOAuthClient } from './google-auth'
 import {
   DEFAULT_PROFILE, classifyBySwatches, matchesKeyword,
-  sectionHeaderRegex, divisionCodeRegex, type ColorRules, type InstitutionProfile,
+  sectionHeaderRegex, divisionCodeRegex, cellSectionRegex, roomHeaderRegex,
+  parseSectionAlloc, sectionSuffixRegex,
+  type ColorRules, type InstitutionProfile,
 } from './institution-profile'
 
 // ─── Course catalog (institution-configurable; defaults = IIM-K) ──────────────
@@ -67,9 +69,11 @@ export function normalizeScheduleCode(
 
 // Strip section suffix and program qualifiers to get the base abbreviation
 // "GT-A" → "GT", "SOMA-B" → "SOMA", "FC (FIN)" → "FC", "ST (FIN-Core)" → "ST"
-export function getBaseAbbr(code: string): string {
-  const sectionMatch = code.match(/^(.+)-[A-C]$/)
-  if (sectionMatch) return sectionMatch[1]
+// The section marker is DECLARED-label driven (profile.sections), not a hardcoded A–C — so a
+// multi-char section ("ME-Fin" → "ME") strips correctly for any institution's vocabulary.
+export function getBaseAbbr(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
+  const stripped = code.replace(sectionSuffixRegex(profile.sections), '')
+  if (stripped !== code) return stripped
   const qualMatch = code.match(/^([^\s(]+)\s*\(/)
   if (qualMatch) return qualMatch[1]
   return code
@@ -91,8 +95,9 @@ function normAbbr(s: string): string {
 export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAULT_PROFILE): string {
   const aliases = profile.catalog.aliases
   // Whole-cell alias first (e.g. "YMHC MN Common Room" → "YMHC"); then the usual section-strip +
-  // base-abbr alias (e.g. "RTM-A" → "RTM" → "RM").
-  let key = normAbbr(aliasForward(code, aliases)).replace(/-[A-C](?=\(|$)/g, '')
+  // base-abbr alias (e.g. "RTM-A" → "RTM" → "RM"). The section-strip is declared-label driven (any
+  // vocabulary), not a hardcoded A–C.
+  let key = normAbbr(aliasForward(code, aliases)).replace(sectionSuffixRegex(profile.sections), '')
   const base = key.split('(')[0]
   if (aliases[base]) key = aliases[base] + key.slice(base.length)
   return key
@@ -106,8 +111,12 @@ export function getDetailAbbr(code: string, profile: InstitutionProfile = DEFAUL
 //   "RM-A" → "RTM-A" (section/qualifier suffix kept)
 //   "RTM"  → "RTM"   (roster already wrote the schedule code → unchanged)
 //   "GT-A" → "GT-A"  (no alias → unchanged)
-export function aliasToScheduleCode(code: string, aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases): string {
-  const base = getBaseAbbr(code)
+export function aliasToScheduleCode(
+  code: string,
+  aliases: Record<string, string> = DEFAULT_PROFILE.catalog.aliases,
+  profile: InstitutionProfile = DEFAULT_PROFILE,
+): string {
+  const base = getBaseAbbr(code, profile)
   const up = base.toUpperCase()
   if (aliases[base] ?? aliases[up]) return code // already a schedule-side code (an alias key)
   // Only PLAIN code aliases (single-token key) reverse-map onto the schedule code. A venue alias is
@@ -157,10 +166,8 @@ export function parseCourseDetails(
       const alloc = getCell(row, sectionCol).trim()
       const faculty = getCell(row, facultyCol).trim()
       if (!alloc || !faculty) continue
-      const labels = (profile.sections.sectionLabels.length ? profile.sections.sectionLabels : ['A']).map((l) => l.toUpperCase())
-      const secs = /all/i.test(alloc)
-        ? labels
-        : [...new Set(alloc.toUpperCase().replace(new RegExp(`[^${labels.join('')}]`, 'g'), '').split('').filter(Boolean))]
+      // Declared-label driven so multi-char sections (FIN/LSM) split as whole tokens, never F/I/N.
+      const secs = parseSectionAlloc(alloc, profile.sections.sectionLabels)
       for (const sec of secs) map.set(`${curAbbr}|${sec}`, { name: curName, credits: curCredit, faculty })
     }
     return map
@@ -294,8 +301,24 @@ export function parseSheetRows(rows: string[][], opts: ParseOpts = {}): ParsedCo
   if (!rows || rows.length === 0) return []
   const layout = opts.layout ?? 'division'
   const profile = opts.profile ?? DEFAULT_PROFILE
-  const sectionHeaderIdx = findSectionHeaderRow(rows, layout, profile)
-  if (sectionHeaderIdx !== -1) return parseScheduleMatrix(rows, sectionHeaderIdx, layout, profile, opts.format, opts.merges)
+
+  if (layout === 'section') {
+    // A 1st-year sheet carries its SECTION identity either in a "Sec A" header COLUMN (legacy) or in
+    // each CELL as "<course>-<section>" (new merged PGP/FIN/LSM format). `sectionSource` selects the
+    // reader; 'auto' tries the column layout first, then falls back to the section-in-cell layout.
+    const src = profile.sections.sectionSource ?? 'auto'
+    if (src === 'column' || src === 'auto') {
+      const idx = findSectionHeaderRow(rows, 'section', profile)
+      if (idx !== -1) return parseScheduleMatrix(rows, idx, 'section', profile, opts.format, opts.merges)
+      if (src === 'column') return parseFlatList(rows, 'Sheet1')
+    }
+    const roomIdx = findRoomHeaderRow(rows, profile)
+    if (roomIdx !== -1) return parseRoomGridMatrix(rows, roomIdx, profile, opts.format, opts.merges)
+    return parseFlatList(rows, 'Sheet1')
+  }
+
+  const idx = findSectionHeaderRow(rows, layout, profile)
+  if (idx !== -1) return parseScheduleMatrix(rows, idx, layout, profile, opts.format, opts.merges)
   return parseFlatList(rows, 'Sheet1')
 }
 
@@ -309,6 +332,64 @@ function findSectionHeaderRow(rows: string[][], layout: 'division' | 'section', 
     if (count >= 2) return i
   }
   return -1
+}
+
+// The header row of a section-in-cell sheet: the row with ≥2 classroom headers ("CR A1", "MDC C6").
+// There is no "Sec X" row here — each column is a ROOM, and the section lives inside each cell.
+function findRoomHeaderRow(rows: string[][], profile: InstitutionProfile): number {
+  const re = roomHeaderRegex(profile.sections)
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    const count = (rows[i] || []).filter((c) => re.test((c || '').trim())).length
+    if (count >= 2) return i
+  }
+  return -1
+}
+
+// Fill-forward the date column so merged/grouped date cells still resolve per row.
+function computeEffDate(rows: string[][], headerIdx: number): string[] {
+  const effDate: string[] = new Array(rows.length).fill('')
+  let cur = ''
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const d = parseFullDate(((rows[r] || [])[0] || '').trim())
+    if (d) cur = d
+    effDate[r] = cur
+  }
+  return effDate
+}
+
+// Event/holiday/exam detection for one row, shared by every matrix layout: an event-coloured body cell
+// with text, OR exam-keyword text, in any of `bodyCols`, is a COMMON event for everyone. Returns the
+// emitted event sessions (possibly []), or null when the row is NOT an event (→ parse it as classes).
+function tryRowEvent(
+  rowIdx: number, bodyCols: number[], row: string[], effDate: string[], rows: string[][],
+  merges: SheetMerge[] | undefined, profile: InstitutionProfile, format: CellFormat[][] | undefined,
+  emitted: Set<string>, start: string, end: string,
+): ParsedCourse[] | null {
+  const isEvent = (s: string) => matchesKeyword(s, profile.keywords.eventWords)
+  const colState = (r: number, c: number) => classifyColor(format?.[r]?.[c]?.bgColor ?? null, profile.colors)
+  let eventName = ''
+  for (const c of bodyCols) {
+    const v = (row[c] || '').trim()
+    if (!v) continue
+    if (colState(rowIdx, c) === 'event' || isEvent(v)) { eventName = v; break }
+  }
+  if (!eventName) return null
+  const kind: ParsedCourse['event_kind'] = isEvent(eventName) ? 'exam' : 'event'
+  const code = eventName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `EVENT_${rowIdx}`
+  const out: ParsedCourse[] = []
+  for (const d of eventDates(rowIdx, bodyCols, merges, effDate, rows, profile)) {
+    const dk = `${code}|${d}`
+    if (emitted.has(dk)) continue
+    emitted.add(dk)
+    out.push({
+      course_code: code, course_name: eventName, instructor: '',
+      day_of_week: isoWeekday(d), session_date: d,
+      start_time: start || '09:00', end_time: end || '17:00',
+      room: '', credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
+      is_common: true, event_kind: kind,
+    })
+  }
+  return out
 }
 
 function parseScheduleMatrix(
@@ -344,20 +425,9 @@ function parseScheduleMatrix(
   if (sections.length === 0) return []
   const sectionCols = sections.map((s) => s.col)
 
-  // Fill-forward the date column so merged/grouped date cells still resolve per row.
-  const effDate: string[] = new Array(rows.length).fill('')
-  let cur = ''
-  for (let r = sectionHeaderIdx + 1; r < rows.length; r++) {
-    const d = parseFullDate(((rows[r] || [])[0] || '').trim())
-    if (d) cur = d
-    effDate[r] = cur
-  }
-
+  const effDate = computeEffDate(rows, sectionHeaderIdx)
   const results: ParsedCourse[] = []
-  const { skipWords, eventWords } = profile.keywords
-  const isSkip = (s: string) => matchesKeyword(s, skipWords)
-  const isEvent = (s: string) => matchesKeyword(s, eventWords)
-  const colState = (r: number, c: number) => classifyColor(format?.[r]?.[c]?.bgColor ?? null, profile.colors)
+  const isSkip = (s: string) => matchesKeyword(s, profile.keywords.skipWords)
   const emitted = new Set<string>() // dedup events by name|date
 
   for (let rowIdx = sectionHeaderIdx + 1; rowIdx < rows.length; rowIdx++) {
@@ -368,30 +438,8 @@ function parseScheduleMatrix(
     const timeStr = (row[1] || '').trim()
     const { start, end } = parseMatrixTimeRange(timeStr)
 
-    // Event/holiday/exam: an event-coloured body cell with text, OR exam-keyword text. Common to all.
-    let eventName = ''
-    for (const s of sections) {
-      const v = (row[s.col] || '').trim()
-      if (!v) continue
-      if (colState(rowIdx, s.col) === 'event' || isEvent(v)) { eventName = v; break }
-    }
-    if (eventName) {
-      const kind: ParsedCourse['event_kind'] = isEvent(eventName) ? 'exam' : 'event'
-      const code = eventName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `EVENT_${rowIdx}`
-      for (const d of eventDates(rowIdx, sectionCols, merges, effDate, rows, profile)) {
-        const dk = `${code}|${d}`
-        if (emitted.has(dk)) continue
-        emitted.add(dk)
-        results.push({
-          course_code: code, course_name: eventName, instructor: '',
-          day_of_week: isoWeekday(d), session_date: d,
-          start_time: start || '09:00', end_time: end || '17:00',
-          room: '', credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
-          is_common: true, event_kind: kind,
-        })
-      }
-      continue
-    }
+    const events = tryRowEvent(rowIdx, sectionCols, row, effDate, rows, merges, profile, format, emitted, start, end)
+    if (events) { results.push(...events); continue }
 
     // Regular classes need a time.
     if (!timeStr || isSkip(timeStr)) continue
@@ -408,6 +456,65 @@ function parseScheduleMatrix(
         course_code: code, course_name: name ?? code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
+        is_common: false, event_kind: 'class',
+      })
+    }
+  }
+  return results
+}
+
+// ─── Section-in-cell matrix (new 1st-year format) ─────────────────────────────
+// The header row is classrooms only ("CR A1"…); the "Sec X" row is gone. A cell is
+// "<course>-<section>" (e.g. "DA-B", "ME-Fin"), so the COLUMN is a ROOM and the SECTION comes from the
+// cell. Emits the SAME ParsedCourse shape as the column layout — course_code is the bare code and
+// sheet_tab is the section (UPPER-cased to match the roster's normalizeSection) — so the diff, roster
+// matching (sheet_tab = user.section) and every view keep working unchanged.
+function parseRoomGridMatrix(
+  rows: string[][], roomHeaderIdx: number, profile: InstitutionProfile,
+  format?: CellFormat[][], merges?: SheetMerge[]
+): ParsedCourse[] {
+  const headerRow = rows[roomHeaderIdx]
+  const roomRe = roomHeaderRegex(profile.sections)
+  const cols: { col: number; room: string }[] = []
+  for (let col = 0; col < headerRow.length; col++) {
+    const h = (headerRow[col] || '').trim()
+    if (h && roomRe.test(h)) cols.push({ col, room: h })
+  }
+  if (cols.length === 0) return []
+  const roomCols = cols.map((c) => c.col)
+
+  const effDate = computeEffDate(rows, roomHeaderIdx)
+  const cellRe = cellSectionRegex(profile.sections)
+  const isSkip = (s: string) => matchesKeyword(s, profile.keywords.skipWords)
+  const emitted = new Set<string>()
+  const results: ParsedCourse[] = []
+
+  for (let rowIdx = roomHeaderIdx + 1; rowIdx < rows.length; rowIdx++) {
+    const row = rows[rowIdx]
+    if (!row || row.length < 2) continue
+    const isoDate = effDate[rowIdx]
+    if (!isoDate) continue
+    const timeStr = (row[1] || '').trim()
+    const { start, end } = parseMatrixTimeRange(timeStr)
+
+    const events = tryRowEvent(rowIdx, roomCols, row, effDate, rows, merges, profile, format, emitted, start, end)
+    if (events) { results.push(...events); continue }
+
+    if (!timeStr || isSkip(timeStr)) continue
+    const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
+    for (const c of cols) {
+      const raw = cleanCode(row[c.col] || '')
+      if (!raw || isSkip(raw)) continue
+      const m = raw.match(cellRe)
+      // Matched "<course>-<section>" → section from the cell (UPPER-cased to match the roster), room
+      // from the column header. No declared-section suffix (an anomaly/typo) → keep the whole cell as
+      // the code and key it by room, so an unrecognised cell is preserved rather than silently dropped.
+      const course = m ? cleanCode(m[1]) : raw
+      const section = m ? m[2].toUpperCase() : c.room
+      results.push({
+        course_code: course, course_name: course, instructor: '',
+        day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
+        room: c.room, credits: '', sheet_tab: section, sheet_row_index: rowIdx, sheet_col: c.col,
         is_common: false, event_kind: 'class',
       })
     }

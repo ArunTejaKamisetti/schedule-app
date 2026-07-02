@@ -222,13 +222,47 @@ function SectionsTab({
     <>
       <div style={card}>
         <span style={labelStyle}>1st-year section labels</span>
-        <p style={hint}>The section letters used in the &quot;Sec A&quot;-style sheets. Comma-separated.</p>
-        <CommaInput value={sections.sectionLabels} onChange={(sectionLabels) => onChange({ ...sections, sectionLabels }, keywords)} placeholder="A, B, C, D…" />
+        <p style={hint}>
+          Every section a 1st-year student can belong to. Labels can be more than one character
+          (e.g. programme cohorts <code>Fin</code>, <code>LSM</code> alongside <code>A</code>…<code>H</code>).
+          Comma-separated. These drive section detection everywhere — header rows, in-cell tags and
+          Course-Details allocation.
+        </p>
+        <CommaInput value={sections.sectionLabels} onChange={(sectionLabels) => onChange({ ...sections, sectionLabels }, keywords)} placeholder="A, B, C, D, E, F, G, H, Fin, LSM" />
+      </div>
+
+      <div style={card}>
+        <span style={labelStyle}>Where is the section written?</span>
+        <p style={hint}>
+          How your 1st-year sheet identifies a section. <b>Auto</b> handles both and is recommended.
+        </p>
+        {([
+          ['auto', 'Automatic (recommended)', 'Detect per sheet: a "Sec A" header row → column; otherwise a classroom-only header → in the cell.'],
+          ['column', 'In the column header', 'Legacy layout: a "Sec A"…"Sec H" row. The column is the section; the cell is the bare course code.'],
+          ['cell', 'Inside each cell', 'New layout: classroom-only headers ("CR A1"). Each cell is course + section, e.g. "DA-B", "ME-Fin".'],
+        ] as [SectionConfig['sectionSource'], string, string][]).map(([val, title, desc]) => (
+          <label key={val} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+            <input type="radio" checked={(sections.sectionSource ?? 'auto') === val} onChange={() => onChange({ ...sections, sectionSource: val }, keywords)} style={{ marginTop: 3 }} />
+            <span style={{ fontSize: 13 }}><b>{title}</b> — {desc}</span>
+          </label>
+        ))}
+      </div>
+
+      <div style={card}>
+        <span style={labelStyle}>In-cell section separator</span>
+        <p style={hint}>Splits course from section when the section is in the cell — e.g. <code>-</code> in <code>ME-Fin</code>. Used only by the &quot;inside each cell&quot; layout.</p>
+        <input value={sections.cellSectionSeparator} onChange={(e) => onChange({ ...sections, cellSectionSeparator: e.target.value }, keywords)} style={{ ...inputStyle, width: 100 }} placeholder="-" />
+      </div>
+
+      <div style={card}>
+        <span style={labelStyle}>Classroom-header pattern (regex)</span>
+        <p style={hint}>Identifies the classroom columns of an &quot;inside each cell&quot; sheet, e.g. <code>CR A1</code>/<code>MDC C6</code>. Default <code>^(CR|MDC)\b</code>.</p>
+        <input value={sections.roomHeaderPattern} onChange={(e) => onChange({ ...sections, roomHeaderPattern: e.target.value }, keywords)} style={{ ...inputStyle, width: 260, fontFamily: 'monospace' }} />
       </div>
 
       <div style={card}>
         <span style={labelStyle}>Section-header prefix</span>
-        <p style={hint}>The word before the section letter in the header row (e.g. &quot;Sec&quot; for &quot;Sec A&quot;).</p>
+        <p style={hint}>The word before the section label in a &quot;column header&quot; sheet (e.g. &quot;Sec&quot; for &quot;Sec A&quot;).</p>
         <input value={sections.sectionHeaderPrefix} onChange={(e) => onChange({ ...sections, sectionHeaderPrefix: e.target.value }, keywords)} style={{ ...inputStyle, width: 160 }} placeholder="Sec" />
       </div>
 

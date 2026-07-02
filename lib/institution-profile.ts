@@ -44,9 +44,19 @@ export interface CatalogConfig {
 }
 
 export interface SectionConfig {
-  sectionLabels: string[]       // 1st-year section letters, e.g. ['A'..'H']
-  sectionHeaderPrefix: string   // the word before the section letter in the header, e.g. 'Sec'
+  sectionLabels: string[]       // 1st-year section labels — single OR multi-char, e.g. ['A'..'H','FIN','LSM']
+  sectionHeaderPrefix: string   // the word before the section label in the header, e.g. 'Sec'
   divisionCodePattern: string   // regex (source) identifying a 2nd-year division code, e.g. D1/E2
+  // Where a 1st-year sheet carries the SECTION identity (the thing a student is rostered into):
+  //   'column' — legacy: a "Sec A".."Sec H" header row; the COLUMN is the section, the cell is the
+  //              bare course code, the room is the classroom cell above the header.
+  //   'cell'   — new format: classroom-only headers (no "Sec X" row); each cell is
+  //              "<COURSE><sep><SECTION>" (e.g. "DA-B", "ME-Fin"), so the SECTION lives in the cell
+  //              and the COLUMN is a room. A section is no longer tied to one column.
+  //   'auto'   — detect per sheet: a section-header row → 'column', else a room-header row → 'cell'.
+  sectionSource: 'auto' | 'column' | 'cell'
+  cellSectionSeparator: string  // splits course from section in a 'cell'-mode cell, e.g. '-' in "ME-Fin"
+  roomHeaderPattern: string     // regex (source) identifying a classroom header cell, e.g. "CR A1"/"MDC C6"
 }
 
 export interface KeywordConfig {
@@ -69,11 +79,18 @@ export const DEFAULT_PROFILE: InstitutionProfile = {
     aliases: { RTM: 'RM' },
   },
   sections: {
-    sectionLabels: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
+    // IIM-K 1st-year sections: the eight PGP letters plus the FIN/LSM programme cohorts, which appear
+    // as section tags in the merged "PGP30/FIN07/LSM07" sheet (e.g. "ME-Fin", "BC-LSM"). Multi-char
+    // labels are first-class — nothing here (or downstream) assumes a section is one letter.
+    sectionLabels: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'FIN', 'LSM'],
     sectionHeaderPrefix: 'Sec',
     // Single letter + digits (D1/E2) — strict enough to NOT match the programme-name row above the
     // section header (e.g. PGPFIN06), which is how the section-header row is located.
     divisionCodePattern: '^[A-Z]\\d+$',
+    sectionSource: 'auto',
+    cellSectionSeparator: '-',
+    // Classroom headers in the section-in-cell sheet: "CR A1", "MDC C6", …
+    roomHeaderPattern: '^(CR|MDC)\\b',
   },
   keywords: {
     skipWords: ['lunch', 'break', 'registration', 'holiday', 'recess', 'tea', 'meeting'],
@@ -113,6 +130,56 @@ export function divisionCodeRegex(cfg: SectionConfig): RegExp {
   } catch {
     return /^[A-Z]+\d+$/
   }
+}
+
+// The section labels as a regex alternation, LONGEST-FIRST + escaped — so a multi-char label ("FIN",
+// "LSM") wins over a single-char one ("F") when both could match. The shared building block for every
+// label-driven matcher below, so nothing has to assume a section is one character.
+function labelAlternation(cfg: SectionConfig): string {
+  const labels = cfg.sectionLabels.length ? cfg.sectionLabels : ['A']
+  return labels.slice().sort((a, b) => b.length - a.length).map(escapeRe).join('|')
+}
+
+// A schedule cell in a 'cell'-mode sheet: "<COURSE><sep><SECTION>" (e.g. "ME-Fin", "DA-B", "BC-LSM").
+// Group 1 = the course code, group 2 = a DECLARED section label. Case-insensitive; the anchored end +
+// declared-label alternation stop a course code that merely contains the separator from mis-splitting.
+export function cellSectionRegex(cfg: SectionConfig): RegExp {
+  const sep = escapeRe(cfg.cellSectionSeparator || '-')
+  return new RegExp(`^(.+?)\\s*${sep}\\s*(${labelAlternation(cfg)})$`, 'i')
+}
+
+// A classroom/room header cell (e.g. "CR A1", "MDC C6") — the column identity in a 'cell'-mode sheet.
+// Compiled from the admin pattern; a bad regex falls back to a permissive room-ish default so the sync
+// can't crash on a dashboard typo.
+export function roomHeaderRegex(cfg: SectionConfig): RegExp {
+  try {
+    return new RegExp(cfg.roomHeaderPattern || '(?:)', 'i')
+  } catch {
+    return /^(CR|MDC)\b/i
+  }
+}
+
+// Remove a trailing "-<section>" marker, generic over the declared labels: "GT-A"→"GT",
+// "ME-Fin"→"ME", "DS-A(LSM-Core)"→"DS(LSM-Core)". Only a DECLARED label that sits right before a "("
+// or the end is stripped (so "LSM-Core" is left intact). Global + case-insensitive.
+export function sectionSuffixRegex(cfg: SectionConfig): RegExp {
+  return new RegExp(`-(?:${labelAlternation(cfg)})(?=\\(|$)`, 'gi')
+}
+
+// Parse a Course-Details "Section Allocation" cell into its section labels — generic over ANY label
+// set. Handles "All", concatenated single letters ("AB"→['A','B']) and separated multi-char labels
+// ("A, Fin"→['A','FIN']). Longest-label-first so "Fin" is read as one section, never F/I/N.
+export function parseSectionAlloc(alloc: string, labels: string[]): string[] {
+  const up = (alloc || '').toUpperCase()
+  const all = (labels.length ? labels : ['A']).map((l) => l.toUpperCase())
+  if (/all/i.test(alloc || '')) return [...new Set(all)]
+  const ordered = all.slice().sort((a, b) => b.length - a.length).filter(Boolean)
+  const found: string[] = []
+  for (let i = 0; i < up.length;) {
+    const hit = ordered.find((l) => up.startsWith(l, i))
+    if (hit) { found.push(hit); i += hit.length } else i += 1 // skip separators / stray chars
+  }
+  return [...new Set(found)]
 }
 
 // ── Closest-bucket colour matcher (custom mode) ──────────────────────────────────────────────────
@@ -250,10 +317,20 @@ export function sanitizeProfilePatch(input: unknown): ProfilePatch {
     const s = input.sections
     let divisionCodePattern = typeof s.divisionCodePattern === 'string' ? s.divisionCodePattern.trim() : ''
     try { new RegExp(divisionCodePattern || '(?:)') } catch { divisionCodePattern = '' } // reject an uncompilable regex
+    let roomHeaderPattern = typeof s.roomHeaderPattern === 'string' ? s.roomHeaderPattern.trim() : ''
+    try { new RegExp(roomHeaderPattern || '(?:)') } catch { roomHeaderPattern = '' } // reject an uncompilable regex
+    const sectionSource: SectionConfig['sectionSource'] =
+      s.sectionSource === 'column' || s.sectionSource === 'cell' ? s.sectionSource : 'auto'
+    const cellSectionSeparator =
+      typeof s.cellSectionSeparator === 'string' && s.cellSectionSeparator.trim()
+        ? s.cellSectionSeparator.trim() : DEFAULT_PROFILE.sections.cellSectionSeparator
     patch.sections = {
       sectionLabels: strArray(s.sectionLabels).map((l) => l.toUpperCase()),
       sectionHeaderPrefix: typeof s.sectionHeaderPrefix === 'string' ? s.sectionHeaderPrefix.trim() : DEFAULT_PROFILE.sections.sectionHeaderPrefix,
       divisionCodePattern: divisionCodePattern || DEFAULT_PROFILE.sections.divisionCodePattern,
+      sectionSource,
+      cellSectionSeparator,
+      roomHeaderPattern: roomHeaderPattern || DEFAULT_PROFILE.sections.roomHeaderPattern,
     }
   }
 

@@ -3,6 +3,7 @@ import {
   parseSheetRows, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
   parseCourseDetails, parseFullDate, detailKey, cleanCode, normalizeScheduleCode,
 } from '@/lib/sheets'
+import { DEFAULT_PROFILE } from '@/lib/institution-profile'
 import { buildSheet } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
 
@@ -22,6 +23,26 @@ function buildSection(opts: {
   for (const [k, hex] of Object.entries(opts.fmt ?? {})) {
     const [r, c] = k.split(',').map(Number)
     format[2 + r][c] = { bgColor: hex, strikethrough: false }
+  }
+  return { rows, format, merges: opts.merges }
+}
+
+// Build a NEW-format 1st-year "section-in-cell" schedule: a single classroom-header row ("CR A1"…)
+// with NO "Sec X" row, then body rows of [date, time, ...cells] where each cell is "<course>-<section>"
+// (e.g. "ME-Fin", "DA-B"). Mirrors the merged PGP30/FIN07/LSM07 sheet.
+function buildRoomGrid(opts: {
+  rooms: string[]; body: string[][]
+  fmt?: Record<string, string>   // "row,col" → bg hex, where row indexes the BODY (0-based)
+  merges?: SheetMerge[]
+}) {
+  const width = 2 + opts.rooms.length
+  const headerRow = ['Date', 'Time', ...opts.rooms]
+  const rows = [headerRow, ...opts.body]
+  const blank = (): CellFormat[] => Array.from({ length: width }, () => ({ bgColor: null, strikethrough: false }))
+  const format: CellFormat[][] = rows.map(() => blank())
+  for (const [k, hex] of Object.entries(opts.fmt ?? {})) {
+    const [r, c] = k.split(',').map(Number)
+    format[1 + r][c] = { bgColor: hex, strikethrough: false }
   }
   return { rows, format, merges: opts.merges }
 }
@@ -172,6 +193,89 @@ describe('parseSheetRows — section layout (1st year)', () => {
   })
 })
 
+describe('parseSheetRows — section-in-cell layout (new 1st-year format)', () => {
+  it('auto-detects classroom headers and reads the section from each cell suffix', () => {
+    const { rows } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2', 'CR B3'],
+      body: [['Monday, June 29, 2026', '09.15-10.30', 'ME-Fin', 'DA-B', 'BC-LSM']],
+    })
+    const parsed = parseSheetRows(rows, { layout: 'section' })
+    // course_code = bare code; sheet_tab = section UPPER-cased (matches roster normalizeSection);
+    // room = the classroom column header. Same ParsedCourse shape as the legacy column layout.
+    expect(parsed.map((p) => [p.course_code, p.sheet_tab, p.room])).toEqual([
+      ['ME', 'FIN', 'CR A1'],
+      ['DA', 'B', 'CR A2'],
+      ['BC', 'LSM', 'CR B3'],
+    ])
+    const me = parsed.find((p) => p.course_code === 'ME')!
+    expect(me.session_date).toBe('2026-06-29')
+    expect(me.start_time).toBe('09:15')
+    expect(me.end_time).toBe('10:30')
+    expect(me.day_of_week).toBe('MON')
+    expect(me.is_common).toBe(false)
+    expect(me.event_kind).toBe('class')
+  })
+
+  it('keys a section by its identity even when it sits in different rooms across the day', () => {
+    const { rows } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [
+        ['Monday, June 29, 2026', '09.15-10.30', 'ME-B', 'DA-C'],
+        ['Monday, June 29, 2026', '10.50-12.05', 'FA-B', 'DA-C'],
+      ],
+    })
+    const secB = parseSheetRows(rows, { layout: 'section' }).filter((p) => p.sheet_tab === 'B')
+    expect(secB.map((p) => [p.start_time, p.room, p.course_code])).toEqual([
+      ['09:15', 'CR A1', 'ME'],   // section B in CR A1 first slot
+      ['10:50', 'CR A1', 'FA'],   // section B in CR A1 second slot (different course, same room here)
+    ])
+  })
+
+  it('skips filler cells (LUNCH BREAK) and empty cells', () => {
+    const { rows } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [['Monday, June 29, 2026', '13.40-14.40', 'LUNCH BREAK', '']],
+    })
+    expect(parseSheetRows(rows, { layout: 'section' })).toHaveLength(0)
+  })
+
+  it('emits an exam banner as a common event across its merged dates', () => {
+    const { rows, format, merges } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [
+        ['Saturday, July 11, 2026', '', 'MID TERM EXAMINATION', ''],
+        ['Sunday, July 12, 2026', '', '', ''],
+      ],
+      merges: [{ startRow: 1, endRow: 3, startCol: 2, endCol: 4 }],
+    })
+    const exams = parseSheetRows(rows, { layout: 'section', format, merges }).filter((r) => r.is_common)
+    expect(exams.every((e) => e.event_kind === 'exam')).toBe(true)
+    expect(exams.map((e) => e.session_date).sort()).toEqual(['2026-07-11', '2026-07-12'])
+    expect(exams[0].sheet_tab).toBe('COMMON')
+  })
+
+  it('preserves an unrecognised cell (no declared section suffix), keyed by its room', () => {
+    const { rows } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [['Monday, June 29, 2026', '09.15-10.30', 'WORKSHOP-XYZ', 'DA-B']],
+    })
+    const parsed = parseSheetRows(rows, { layout: 'section' })
+    const w = parsed.find((p) => p.course_code === 'WORKSHOP-XYZ')!
+    expect(w).toBeTruthy()             // not mis-split, not dropped
+    expect(w.sheet_tab).toBe('CR A1')  // fallback: preserved, keyed by room
+  })
+
+  it('honours an explicit sectionSource="cell" via the profile', () => {
+    const profile = { ...DEFAULT_PROFILE, sections: { ...DEFAULT_PROFILE.sections, sectionSource: 'cell' as const } }
+    const { rows } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [['Monday, June 29, 2026', '09.15-10.30', 'ME-Fin', 'DA-B']],
+    })
+    const parsed = parseSheetRows(rows, { layout: 'section', profile })
+    expect(parsed.find((p) => p.course_code === 'ME')).toMatchObject({ sheet_tab: 'FIN', room: 'CR A1' })
+  })
+})
+
 describe('parseFullDate — day-first and month-first', () => {
   it('parses day-first (2nd-year sheet)', () => {
     expect(parseFullDate('Tuesday, 9 June, 2026')).toBe('2026-06-09')
@@ -217,12 +321,37 @@ describe('parseCourseDetails — section layout (faculty per section group)', ()
   })
 })
 
+describe('parseCourseDetails — multi-char section allocation (Fin/LSM)', () => {
+  const sheet2 = [
+    ['Course', 'Abbr', 'Credit', 'Section Allocation', 'Faculty'],
+    ['Managerial Economics', 'ME', '3', 'Fin', 'Prof. A'],
+    ['', '', '', 'LSM', 'Prof. B'],
+    ['Data Analytics', 'DA', '3', 'A, B', 'Prof. C'],
+  ]
+  it('keys multi-char sections as whole tokens (never F/I/N)', () => {
+    const map = parseCourseDetails(sheet2, 'section')
+    expect(map.get('ME|FIN')?.faculty).toBe('Prof. A')
+    expect(map.get('ME|LSM')?.faculty).toBe('Prof. B')
+    expect(map.get('DA|A')?.faculty).toBe('Prof. C')
+    expect(map.get('DA|B')?.faculty).toBe('Prof. C')
+    expect(map.get('ME')?.name).toBe('Managerial Economics')
+    // the bug guard: no phantom single-letter keys from "Fin"
+    expect(map.get('ME|F')).toBeUndefined()
+    expect(map.get('ME|I')).toBeUndefined()
+  })
+})
+
 describe('getBaseAbbr / getDetailAbbr — cross-sheet matching', () => {
   it('strips section suffixes and qualifiers for the base', () => {
     expect(getBaseAbbr('GT-A')).toBe('GT')
     expect(getBaseAbbr('SOMA-B')).toBe('SOMA')
     expect(getBaseAbbr('FC (FIN)')).toBe('FC')
     expect(getBaseAbbr('CV (FIN-Core)')).toBe('CV')
+  })
+  it('strips a MULTI-char section suffix (declared-label driven, not hardcoded A–C)', () => {
+    expect(getBaseAbbr('ME-Fin')).toBe('ME')
+    expect(getBaseAbbr('BC-LSM')).toBe('BC')
+    expect(getBaseAbbr('FA-H')).toBe('FA')   // beyond the old A–C range
   })
   it('normalises Sheet-2 lookup keys (spacing, section, alias)', () => {
     expect(getDetailAbbr('CV (FIN-Core)')).toBe('CV(FIN-CORE)')
