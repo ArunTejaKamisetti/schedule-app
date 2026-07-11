@@ -14,32 +14,48 @@ describe('MESS data', () => {
     }
   })
 
-  it('lists the July lunch non-veg specials', () => {
-    expect(MESS.MON.lunch.special).toContain('Chilli Chicken')
-    expect(MESS.TUE.lunch.special).toContain('Egg Curry')
-    expect(MESS.WED.lunch.special).toContain('Kadai Chicken')
-    expect(MESS.THU.lunch.special).toContain('Egg Masala')
-    expect(MESS.FRI.lunch.special).toContain('Kerala Fish Curry')
-    expect(MESS.SAT.lunch.special).toContain('Egg Kolhapuri')
-    expect(MESS.SUN.lunch.special).toContain('Butter Chicken')
+  it('lists the July lunch non-veg / fish-egg specials', () => {
+    expect(MESS.MON.lunch.special).toContain('Egg Curry')
+    expect(MESS.TUE.lunch.special).toContain('Bengali Fish Curry')
+    expect(MESS.WED.lunch.special).toContain('Egg Masala')
+    expect(MESS.THU.lunch.special).toContain('Fish Curry (Nellore Chepala Pulusu)')
+    expect(MESS.FRI.lunch.special).toContain('Egg Curry')
+    expect(MESS.SUN.lunch.special).toContain('Kerala Fish Curry')
+    // Saturday lunch carries a paneer special (green) instead of a fish/egg dish.
+    expect(MESS.SAT.lunch.special).toContain('Paneer Makkan Masala')
   })
 
-  it('offers a boiled egg at every breakfast', () => {
-    for (const d of DAYS) expect(MESS[d].breakfast.special).toContain('Boiled Egg')
+  it('lists the July dinner non-veg specials', () => {
+    expect(MESS.MON.dinner.special).toContain('Chilli Chicken')
+    expect(MESS.WED.dinner.special).toContain('Kadai Chicken')
+    expect(MESS.THU.dinner.special).toContain('Chicken Curry')
+    expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biriyani')
+    expect(MESS.SAT.dinner.special).toContain('Egg Kolhapuri')
+    expect(MESS.SUN.dinner.special).toContain('Butter Chicken')
   })
 
-  it('lists paid extras on lunch/dinner where the menu has them (and none on breakfast)', () => {
-    // Breakfast never carries an Extras row.
-    for (const d of DAYS) expect(MESS[d].breakfast.extras).toBeUndefined()
-    // Spot-check the confirmed Extras cells.
-    expect(MESS.MON.lunch.extras).toEqual(['Fish Fry'])
-    expect(MESS.TUE.lunch.extras).toEqual(['Chicken Megestic', 'Fish Fry'])
-    expect(MESS.SAT.dinner.extras).toEqual(['Chicken Masala'])
-    expect(MESS.SUN.dinner.extras).toEqual(['Chicken Biriyani'])
-    // Sunday lunch and Thu/Fri dinner have no Extras.
-    expect(MESS.SUN.lunch.extras).toBeUndefined()
-    expect(MESS.THU.dinner.extras).toBeUndefined()
-    expect(MESS.FRI.dinner.extras).toBeUndefined()
+  it('offers an egg option at every breakfast', () => {
+    for (const d of DAYS) {
+      const eggs = MESS[d].breakfast.special ?? []
+      expect(eggs.some((s) => /egg|omelette/i.test(s)), d).toBe(true)
+    }
+  })
+
+  it('carries no Extras row anywhere in the July menu', () => {
+    for (const d of DAYS) {
+      expect(MESS[d].breakfast.extras, d).toBeUndefined()
+      expect(MESS[d].lunch.extras, d).toBeUndefined()
+      expect(MESS[d].dinner.extras, d).toBeUndefined()
+    }
+  })
+
+  it('has no duplicate item within any meal (React keys on menu.veg are the item text)', () => {
+    for (const d of DAYS) {
+      for (const meal of [MESS[d].breakfast, MESS[d].lunch, MESS[d].dinner]) {
+        const all = [...meal.veg, ...(meal.special ?? []), ...(meal.extras ?? [])]
+        expect(new Set(all).size, `${d} ${all.join(',')}`).toBe(all.length)
+      }
+    }
   })
 })
 
