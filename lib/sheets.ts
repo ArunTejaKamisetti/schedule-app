@@ -377,35 +377,56 @@ function parseScheduleMatrix(
     const timeStr = (row[1] || '').trim()
     const { start, end } = parseMatrixTimeRange(timeStr)
 
-    // Event/holiday/exam: an amber-coloured body cell with text, OR exam text. Common to everyone.
+    // Event/holiday/exam: an amber-coloured body cell with text, OR exam text.
     let eventName = ''
+    let eventCol = -1
     for (const s of sections) {
       const v = (row[s.col] || '').trim()
       if (!v) continue
-      if (colState(rowIdx, s.col) === 'event' || commonPattern.test(v)) { eventName = v; break }
+      if (colState(rowIdx, s.col) === 'event' || commonPattern.test(v)) { eventName = v; eventCol = s.col; break }
     }
+    // Section columns the event's own merge covers. A merge spanning ALL section columns (or no
+    // merge/merge data) is a whole-row banner (holiday/exam) — common to everyone, and the row
+    // holds nothing else. A merge confined to FEWER columns is a column block (e.g. an amber
+    // "MDP Programme" reserving one classroom for a stretch of days): still shown to everyone,
+    // tagged with the blocked room(s), but the row's other columns hold real classes that must
+    // keep parsing. (Banners misread as blocks are harmless — their rows have no other content.)
+    let blockCols: Set<number> | null = null
     if (eventName) {
+      const eventMerge = (merges ?? []).find(
+        (m) => rowIdx >= m.startRow && rowIdx < m.endRow && eventCol >= m.startCol && eventCol < m.endCol
+      )
+      const covered = eventMerge ? sections.filter((s) => s.col >= eventMerge.startCol && s.col < eventMerge.endCol) : sections
+      const isBlock = !!eventMerge && covered.length < sections.length
+      // Tag the blocked room(s) only when the block is a minority of columns (one classroom
+      // taken by an MDP). A merge covering most-but-not-all columns is just a banner whose row
+      // neighbours another block — it keeps its plain name and dedupes with sibling rows.
+      const tagRooms = isBlock && covered.length * 2 <= sections.length
+      const blockRoom = tagRooms ? covered.map((s) => s.room || s.code).join(', ') : ''
+      const displayName = tagRooms ? `${eventName} (${blockRoom})` : eventName
       const kind: ParsedCourse['event_kind'] = commonPattern.test(eventName) ? 'exam' : 'event'
-      const code = eventName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `EVENT_${rowIdx}`
-      for (const d of eventDates(rowIdx, sectionCols, merges, effDate, rows, skipPattern, commonPattern)) {
+      const code = displayName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || `EVENT_${rowIdx}`
+      for (const d of eventDates(rowIdx, eventMerge, effDate, rows, sectionCols, skipPattern, commonPattern)) {
         const dk = `${code}|${d}`
         if (emitted.has(dk)) continue
         emitted.add(dk)
         results.push({
-          course_code: code, course_name: eventName, instructor: '',
+          course_code: code, course_name: displayName, instructor: '',
           day_of_week: isoWeekday(d), session_date: d,
           start_time: start || '09:00', end_time: end || '17:00',
-          room: '', credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
+          room: blockRoom, credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
           is_common: true, event_kind: kind,
         })
       }
-      continue
+      if (!isBlock) continue
+      blockCols = new Set(covered.map((s) => s.col))
     }
 
     // Regular classes need a time.
     if (!timeStr || skipPattern.test(timeStr)) continue
     const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
     for (const s of sections) {
+      if (blockCols?.has(s.col)) continue // a column-block event cell is not a class
       const code = (row[s.col] || '').trim()
       if (!code || skipPattern.test(code)) continue
       results.push({
@@ -419,16 +440,13 @@ function parseScheduleMatrix(
   return results
 }
 
-// Dates an event covers: the merge spanning its section cells (precise), else this row plus the
+// Dates an event covers: the rows of its own merged cell (precise), else this row plus the
 // following blank-dated rows (the legacy banner heuristic, for snapshots without merge data).
 function eventDates(
-  rowIdx: number, sectionCols: number[], merges: SheetMerge[] | undefined,
-  effDate: string[], rows: string[][], skipPattern: RegExp, commonPattern: RegExp
+  rowIdx: number, merge: SheetMerge | undefined,
+  effDate: string[], rows: string[][], sectionCols: number[], skipPattern: RegExp, commonPattern: RegExp
 ): string[] {
   const set = new Set<string>()
-  const merge = (merges ?? []).find(
-    (m) => rowIdx >= m.startRow && rowIdx < m.endRow && sectionCols.some((c) => c >= m.startCol && c < m.endCol)
-  )
   if (merge) {
     for (let r = merge.startRow; r < merge.endRow; r++) if (effDate[r]) set.add(effDate[r])
     return [...set]
