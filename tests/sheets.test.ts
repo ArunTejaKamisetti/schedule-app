@@ -4,7 +4,7 @@ import {
   parseCourseDetails, parseFullDate, detailKey, cleanCode, normalizeScheduleCode,
 } from '@/lib/sheets'
 import { DEFAULT_PROFILE } from '@/lib/institution-profile'
-import { buildSheet } from './helpers'
+import { buildSheet, fmtAt, plainRow } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
 
 // Build a 1st-year "section" layout schedule: a room row directly above a "Sec A…" header row,
@@ -118,6 +118,70 @@ describe('parseSheetRows — schedule matrix', () => {
     const exams = parseSheetRows(data.sheet1).filter((r) => r.is_common)
     const dates = exams.map((e) => e.session_date).sort()
     expect(dates).toEqual(['2026-08-22', '2026-08-23', '2026-08-24'])
+  })
+
+  // Regression: an amber "MDP Programme" cell merged vertically over ONE section column
+  // (blocking that classroom for several days) must not swallow the anchor row's classes.
+  it('parses classes alongside an amber block confined to one section column', () => {
+    const body = [
+      ['Friday, 17 July, 2026', '09.15-10.30', 'CONSULTING', 'SDM', 'ST (FIN-Core)', 'MDP Programme'],
+      ['Friday, 17 July, 2026', '10.45-12.00', 'GT-A', 'IAPM-A', 'PSM (LSM-Core)', ''],
+      ['Saturday, 18 July, 2026', '09.15-10.30', '', '', '', ''],
+    ]
+    const data = buildSheet(body, [fmtAt(5, { bgColor: '#ffc000', strikethrough: false }), plainRow(), plainRow()])
+    const merges: SheetMerge[] = [{ startRow: 2, endRow: 5, startCol: 5, endCol: 6 }] // E2 column, both days
+    const parsed = parseSheetRows(data.sheet1, { format: data.sheet1_format, merges })
+
+    const classes = parsed.filter((r) => !r.is_common).map((r) => r.course_code)
+    expect(classes.sort()).toEqual(['CONSULTING', 'GT-A', 'IAPM-A', 'PSM (LSM-Core)', 'SDM', 'ST (FIN-Core)'])
+
+    const events = parsed.filter((r) => r.is_common)
+    expect(events.map((e) => e.session_date).sort()).toEqual(['2026-07-17', '2026-07-18'])
+    expect(events[0].course_name).toBe('MDP Programme (E2)')   // common event, tagged with the room
+    expect(events[0].event_kind).toBe('event')
+    expect(events[0].sheet_tab).toBe('COMMON')
+    expect(events[0].room).toBe('E2')
+  })
+
+  // Regression: a Quizzes banner row that sits INSIDE another block's row range must take its
+  // dates from its OWN merge, not the enclosing block's (which spans more days).
+  it('an event banner inside a column block’s row range keeps its own dates', () => {
+    const body = [
+      ['Thursday, 23 July, 2026', '09.15-10.30', 'FC', 'MITPS', 'FIS (FIN-Core)', 'MDP Programme'],
+      ['Thursday, 23 July, 2026', '14.30-15.45', 'Quizzes', '', '', ''],
+      ['Friday, 24 July, 2026', '09.15-10.30', 'CONSULTING', 'SDM', 'ST (FIN-Core)', ''],
+      ['Friday, 24 July, 2026', '14.30-15.45', 'GT-C', 'GC-A', 'EITRM', ''],
+    ]
+    const data = buildSheet(body, [
+      fmtAt(5, { bgColor: '#ffc000', strikethrough: false }),
+      fmtAt(2, { bgColor: '#ffc000', strikethrough: false }),
+      plainRow(), plainRow(),
+    ])
+    const merges: SheetMerge[] = [
+      { startRow: 2, endRow: 6, startCol: 5, endCol: 6 }, // MDP block: E2 column, both days
+      { startRow: 3, endRow: 4, startCol: 2, endCol: 5 }, // Quizzes banner: one row, cols D1-E1
+    ]
+    const parsed = parseSheetRows(data.sheet1, { format: data.sheet1_format, merges })
+    const quizzes = parsed.filter((r) => r.is_common && /quiz/i.test(r.course_name))
+    expect(quizzes.map((q) => q.session_date)).toEqual(['2026-07-23']) // NOT also the 24th
+    expect(quizzes[0].course_name).toBe('Quizzes')                    // majority width → no room suffix
+    // Friday's classes at both slots are intact.
+    const friday = parsed.filter((r) => !r.is_common && r.session_date === '2026-07-24').map((r) => r.course_code)
+    expect(friday.sort()).toEqual(['CONSULTING', 'EITRM', 'GC-A', 'GT-C', 'SDM', 'ST (FIN-Core)'])
+  })
+
+  it('still treats a full-width amber merge as a whole-row banner', () => {
+    const body = [
+      ['Monday, 20 July, 2026', '09.15-10.30', 'FOUNDATION DAY', '', '', ''],
+      ['Tuesday, 21 July, 2026', '09.15-10.30', '', '', '', ''],
+    ]
+    const data = buildSheet(body, [fmtAt(2, { bgColor: '#ffc000', strikethrough: false }), plainRow()])
+    const merges: SheetMerge[] = [{ startRow: 2, endRow: 4, startCol: 2, endCol: 6 }] // all section columns
+    const parsed = parseSheetRows(data.sheet1, { format: data.sheet1_format, merges })
+    expect(parsed.filter((r) => !r.is_common)).toHaveLength(0)
+    const events = parsed.filter((r) => r.is_common)
+    expect(events[0].course_name).toBe('FOUNDATION DAY')       // no room suffix on banners
+    expect(events.map((e) => e.session_date).sort()).toEqual(['2026-07-20', '2026-07-21'])
   })
 
   it('drops rows with an unparseable date', () => {
@@ -252,6 +316,27 @@ describe('parseSheetRows — section-in-cell layout (new 1st-year format)', () =
     expect(exams.every((e) => e.event_kind === 'exam')).toBe(true)
     expect(exams.map((e) => e.session_date).sort()).toEqual(['2026-07-11', '2026-07-12'])
     expect(exams[0].sheet_tab).toBe('COMMON')
+  })
+
+  // Regression (shared tryRowEvent): an amber block over ONE classroom column must not swallow
+  // the other rooms' classes in its anchor row, and is tagged with the blocked room.
+  it('parses classes alongside an amber block confined to one classroom column', () => {
+    const { rows, format, merges } = buildRoomGrid({
+      rooms: ['CR A1', 'CR A2'],
+      body: [
+        ['Monday, June 29, 2026', '09.15-10.30', 'ME-Fin', 'MDP Programme'],
+        ['Tuesday, June 30, 2026', '09.15-10.30', 'DA-B', ''],
+      ],
+      fmt: { '0,3': '#ffc000' },                        // amber at body row 0, col 3 (CR A2)
+      merges: [{ startRow: 1, endRow: 3, startCol: 3, endCol: 4 }], // CR A2 column, both days
+    })
+    const parsed = parseSheetRows(rows, { layout: 'section', format, merges })
+    const classes = parsed.filter((r) => !r.is_common).map((r) => [r.course_code, r.sheet_tab])
+    expect(classes.sort()).toEqual([['DA', 'B'], ['ME', 'FIN']])   // anchor-row ME-Fin survives
+    const events = parsed.filter((r) => r.is_common)
+    expect(events.map((e) => e.session_date).sort()).toEqual(['2026-06-29', '2026-06-30'])
+    expect(events[0].course_name).toBe('MDP Programme (CR A2)')
+    expect(events[0].room).toBe('CR A2')
   })
 
   it('preserves an unrecognised cell (no declared section suffix), keyed by its room', () => {

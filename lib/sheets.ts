@@ -358,38 +358,56 @@ function computeEffDate(rows: string[][], headerIdx: number): string[] {
 }
 
 // Event/holiday/exam detection for one row, shared by every matrix layout: an event-coloured body cell
-// with text, OR exam-keyword text, in any of `bodyCols`, is a COMMON event for everyone. Returns the
-// emitted event sessions (possibly []), or null when the row is NOT an event (→ parse it as classes).
+// with text, OR exam-keyword text, in any of `bodyCols`, is a COMMON event. The merge under the event
+// cell tells its shape: spanning ALL body columns (or unmerged / no merge data) = whole-row banner
+// (holiday/exam) — the row holds nothing else, so the caller skips it. Confined to FEWER columns = a
+// column block (e.g. an amber "MDP Programme" reserving one classroom for a stretch of days) — still a
+// common event, tagged with the blocked room(s) when it covers a minority of columns, but the row's
+// other columns hold real classes the caller must keep parsing (minus the block's own columns).
+// Returns null when the row is NOT an event; else the event sessions plus `blockCols` (null for a
+// banner → skip the whole row). Banners misread as blocks are harmless — their rows hold nothing else.
 function tryRowEvent(
-  rowIdx: number, bodyCols: number[], row: string[], effDate: string[], rows: string[][],
+  rowIdx: number, bodyCols: { col: number; room: string }[], row: string[], effDate: string[], rows: string[][],
   merges: SheetMerge[] | undefined, profile: InstitutionProfile, format: CellFormat[][] | undefined,
   emitted: Set<string>, start: string, end: string,
-): ParsedCourse[] | null {
+): { sessions: ParsedCourse[]; blockCols: Set<number> | null } | null {
   const isEvent = (s: string) => matchesKeyword(s, profile.keywords.eventWords)
   const colState = (r: number, c: number) => classifyColor(format?.[r]?.[c]?.bgColor ?? null, profile.colors)
   let eventName = ''
-  for (const c of bodyCols) {
-    const v = (row[c] || '').trim()
+  let eventCol = -1
+  for (const { col } of bodyCols) {
+    const v = (row[col] || '').trim()
     if (!v) continue
-    if (colState(rowIdx, c) === 'event' || isEvent(v)) { eventName = v; break }
+    if (colState(rowIdx, col) === 'event' || isEvent(v)) { eventName = v; eventCol = col; break }
   }
   if (!eventName) return null
+  const eventMerge = (merges ?? []).find(
+    (m) => rowIdx >= m.startRow && rowIdx < m.endRow && eventCol >= m.startCol && eventCol < m.endCol
+  )
+  const covered = eventMerge ? bodyCols.filter((b) => b.col >= eventMerge.startCol && b.col < eventMerge.endCol) : bodyCols
+  const isBlock = !!eventMerge && covered.length < bodyCols.length
+  // Tag the blocked room(s) only when the block is a minority of columns. A merge covering
+  // most-but-not-all columns is just a banner whose row neighbours another block — it keeps its
+  // plain name and dedupes with sibling rows.
+  const tagRooms = isBlock && covered.length * 2 <= bodyCols.length
+  const blockRoom = tagRooms ? covered.map((b) => b.room).join(', ') : ''
+  const displayName = tagRooms ? `${eventName} (${blockRoom})` : eventName
   const kind: ParsedCourse['event_kind'] = isEvent(eventName) ? 'exam' : 'event'
-  const code = eventName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40) || `EVENT_${rowIdx}`
-  const out: ParsedCourse[] = []
-  for (const d of eventDates(rowIdx, bodyCols, merges, effDate, rows, profile)) {
+  const code = displayName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || `EVENT_${rowIdx}`
+  const sessions: ParsedCourse[] = []
+  for (const d of eventDates(rowIdx, eventMerge, effDate, rows, bodyCols.map((b) => b.col), profile)) {
     const dk = `${code}|${d}`
     if (emitted.has(dk)) continue
     emitted.add(dk)
-    out.push({
-      course_code: code, course_name: eventName, instructor: '',
+    sessions.push({
+      course_code: code, course_name: displayName, instructor: '',
       day_of_week: isoWeekday(d), session_date: d,
       start_time: start || '09:00', end_time: end || '17:00',
-      room: '', credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
+      room: blockRoom, credits: '', sheet_tab: 'COMMON', sheet_row_index: rowIdx,
       is_common: true, event_kind: kind,
     })
   }
-  return out
+  return { sessions, blockCols: isBlock ? new Set(covered.map((b) => b.col)) : null }
 }
 
 function parseScheduleMatrix(
@@ -423,7 +441,7 @@ function parseScheduleMatrix(
     }
   }
   if (sections.length === 0) return []
-  const sectionCols = sections.map((s) => s.col)
+  const bodyCols = sections.map((s) => ({ col: s.col, room: s.room || s.code }))
 
   const effDate = computeEffDate(rows, sectionHeaderIdx)
   const results: ParsedCourse[] = []
@@ -438,13 +456,17 @@ function parseScheduleMatrix(
     const timeStr = (row[1] || '').trim()
     const { start, end } = parseMatrixTimeRange(timeStr)
 
-    const events = tryRowEvent(rowIdx, sectionCols, row, effDate, rows, merges, profile, format, emitted, start, end)
-    if (events) { results.push(...events); continue }
+    const ev = tryRowEvent(rowIdx, bodyCols, row, effDate, rows, merges, profile, format, emitted, start, end)
+    if (ev) {
+      results.push(...ev.sessions)
+      if (!ev.blockCols) continue // whole-row banner: nothing else in the row
+    }
 
     // Regular classes need a time.
     if (!timeStr || isSkip(timeStr)) continue
     const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
     for (const s of sections) {
+      if (ev?.blockCols?.has(s.col)) continue // a column-block event cell is not a class
       const raw = (row[s.col] || '').trim()
       if (!raw || isSkip(raw)) continue
       // A plain cell stores the SCHEDULE's own cleaned code (the source of truth for display); a
@@ -481,7 +503,6 @@ function parseRoomGridMatrix(
     if (h && roomRe.test(h)) cols.push({ col, room: h })
   }
   if (cols.length === 0) return []
-  const roomCols = cols.map((c) => c.col)
 
   const effDate = computeEffDate(rows, roomHeaderIdx)
   const cellRe = cellSectionRegex(profile.sections)
@@ -497,12 +518,16 @@ function parseRoomGridMatrix(
     const timeStr = (row[1] || '').trim()
     const { start, end } = parseMatrixTimeRange(timeStr)
 
-    const events = tryRowEvent(rowIdx, roomCols, row, effDate, rows, merges, profile, format, emitted, start, end)
-    if (events) { results.push(...events); continue }
+    const ev = tryRowEvent(rowIdx, cols, row, effDate, rows, merges, profile, format, emitted, start, end)
+    if (ev) {
+      results.push(...ev.sessions)
+      if (!ev.blockCols) continue // whole-row banner: nothing else in the row
+    }
 
     if (!timeStr || isSkip(timeStr)) continue
     const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
     for (const c of cols) {
+      if (ev?.blockCols?.has(c.col)) continue // a column-block event cell is not a class
       const raw = cleanCode(row[c.col] || '')
       if (!raw || isSkip(raw)) continue
       const m = raw.match(cellRe)
@@ -522,16 +547,13 @@ function parseRoomGridMatrix(
   return results
 }
 
-// Dates an event covers: the merge spanning its section cells (precise), else this row plus the
+// Dates an event covers: the rows of its own merged cell (precise), else this row plus the
 // following blank-dated rows (the legacy banner heuristic, for snapshots without merge data).
 function eventDates(
-  rowIdx: number, sectionCols: number[], merges: SheetMerge[] | undefined,
-  effDate: string[], rows: string[][], profile: InstitutionProfile
+  rowIdx: number, merge: SheetMerge | undefined,
+  effDate: string[], rows: string[][], sectionCols: number[], profile: InstitutionProfile
 ): string[] {
   const set = new Set<string>()
-  const merge = (merges ?? []).find(
-    (m) => rowIdx >= m.startRow && rowIdx < m.endRow && sectionCols.some((c) => c >= m.startCol && c < m.endCol)
-  )
   if (merge) {
     for (let r = merge.startRow; r < merge.endRow; r++) if (effDate[r]) set.add(effDate[r])
     return [...set]
