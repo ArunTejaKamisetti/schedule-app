@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSheetRows, getArea, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
-  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode, isYmhcVenue, ymhcVenue,
+  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode, isYmhcVenue, ymhcVenue, YMHC_CODE,
 } from '@/lib/sheets'
 import { buildSheet, fmtAt, plainRow } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
@@ -391,12 +391,14 @@ describe('YMHC venue special-case (one-off admin data fix)', () => {
     }
     expect(getArea('YMHC')).toBe('HLAM')               // plain YMHC already HLAM
   })
-  it('collapses every venue wording to ONE course code, with the venue as the room', () => {
+  it('collapses every venue wording onto the already-picked code, venue as the room', () => {
     const codes = new Set<string>()
     for (const cell of VENUE_CELLS) {
       const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', cell, '', '', '']])
       const parsed = parseSheetRows(data.sheet1)[0]
-      expect(parsed.course_code, cell).toBe('YMHC')    // one course, whatever the venue says
+      // Pinned to the original wording → existing picks keep resolving, no re-pick needed.
+      expect(parsed.course_code, cell).toBe(YMHC_CODE)
+      expect(parsed.course_name, cell).toBe('YMHC MN Common Room') // clean display fallback
       expect(parsed.room, cell).toBe(cleanCode(cell).replace(/^YMHC\s*/i, ''))
       codes.add(parsed.course_code)
     }

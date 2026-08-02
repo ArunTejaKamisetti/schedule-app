@@ -57,6 +57,11 @@ export function ymhcVenue(code: string): string {
   return cleanCode(code).replace(/^YMHC\b[\s,:/-]*/i, '').trim()
 }
 
+// Every venue wording resolves to this one code. It is deliberately the ORIGINAL wording —
+// the exact string students already picked — so a re-worded venue keeps their existing pick
+// working instead of silently becoming a course they never enrolled in. Hardcoded on purpose.
+export const YMHC_CODE = 'YMHC\nMN Common Room'
+
 // Strip section suffix and program qualifiers to get the base abbreviation
 // "GT-A" → "GT", "SOMA-B" → "SOMA", "FC (FIN)" → "FC", "ST (FIN-Core)" → "ST"
 export function getBaseAbbr(code: string): string {
@@ -436,12 +441,13 @@ function parseScheduleMatrix(
       if (blockCols?.has(s.col)) continue // a column-block event cell is not a class
       const raw = (row[s.col] || '').trim()
       if (!raw || skipPattern.test(raw)) continue
-      // A venue typed into the YMHC cell is the same course wherever it meets. Canonicalise the
-      // code so a re-worded venue is a room change, not a new course students must re-pick.
+      // A venue typed into the YMHC cell is the same course wherever it meets. Pin the code to
+      // the wording students already picked so a re-worded venue keeps showing on their
+      // schedule, and surface the current venue as the room.
       const venue = isYmhcVenue(raw)
-      const code = venue ? 'YMHC' : raw
+      const code = venue ? YMHC_CODE : raw
       results.push({
-        course_code: code, course_name: code, instructor: '',
+        course_code: code, course_name: venue ? cleanCode(code) : code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
         room: venue ? ymhcVenue(raw) : s.room,
         credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
