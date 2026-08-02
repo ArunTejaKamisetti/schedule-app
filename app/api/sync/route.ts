@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea, isYmhcVenue, cleanCode, detailKey } from '@/lib/sheets'
+import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea, detailKey } from '@/lib/sheets'
 import { SHEET_SOURCES, type SheetSource } from '@/lib/sheets-config'
 import { diffSheetData } from '@/lib/diff'
 import { notifyAffectedUsers } from '@/lib/notify'
@@ -104,7 +104,7 @@ async function syncOneSource(supabase: SB, source: SheetSource) {
       const detail = detailsMap.get(getDetailAbbr(r.course_code))
       return {
         ...r,
-        course_name: isYmhcVenue(r.course_code) ? cleanCode(r.course_code) : (detail?.name || r.course_name),
+        course_name: detail?.name || r.course_name,
         instructor: detail?.faculty || r.instructor || null,
         credits: detail?.credits || r.credits || null,
         area: getArea(r.course_code),

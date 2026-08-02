@@ -43,11 +43,18 @@ export function cleanCode(code: string): string {
   return (code || '').replace(/\s+/g, ' ').trim()
 }
 
-// One-off admin data issue: the venue was typed into YMHC's schedule cell
-// ("YMHC MN Common Room", now "YMHC E4 Classroom"). Treat it as the HLAM elective YMHC for enrichment/area, while the
-// caller keeps the admin's label as the display name.
+// Admin data issue: the venue is typed into YMHC's schedule cell, and the wording changes
+// through the term ("YMHC MN Common Room", "YMHC D3 Classroom", "YMHC E4 Classroom", …).
+// Every one of those is the same HLAM elective, so match on the YMHC prefix rather than on a
+// list of venue names — otherwise each new wording becomes a separate course in the picker.
 export function isYmhcVenue(code: string): boolean {
-  return /^YMHC\b/i.test(code) && (/common\s*room|E4\s*classroom/i.test(code))
+  return /^YMHC\b/i.test(code) && cleanCode(code).toUpperCase() !== 'YMHC'
+}
+
+// The venue half of such a cell — "YMHC\nE4 Classroom" → "E4 Classroom". Used as the room,
+// so a venue rename shows up as a room change instead of a new course.
+export function ymhcVenue(code: string): string {
+  return cleanCode(code).replace(/^YMHC\b[\s,:/-]*/i, '').trim()
 }
 
 // Strip section suffix and program qualifiers to get the base abbreviation
@@ -427,12 +434,17 @@ function parseScheduleMatrix(
     const day = parseDayFromDate((row[0] || '').trim()) || isoWeekday(isoDate)
     for (const s of sections) {
       if (blockCols?.has(s.col)) continue // a column-block event cell is not a class
-      const code = (row[s.col] || '').trim()
-      if (!code || skipPattern.test(code)) continue
+      const raw = (row[s.col] || '').trim()
+      if (!raw || skipPattern.test(raw)) continue
+      // A venue typed into the YMHC cell is the same course wherever it meets. Canonicalise the
+      // code so a re-worded venue is a room change, not a new course students must re-pick.
+      const venue = isYmhcVenue(raw)
+      const code = venue ? 'YMHC' : raw
       results.push({
         course_code: code, course_name: code, instructor: '',
         day_of_week: day, session_date: isoDate, start_time: start, end_time: end,
-        room: s.room, credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
+        room: venue ? ymhcVenue(raw) : s.room,
+        credits: '', sheet_tab: s.label, sheet_row_index: rowIdx, sheet_col: s.col,
         is_common: false, event_kind: 'class',
       })
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSheetRows, getArea, getBaseAbbr, getDetailAbbr, classifyColor, rgbToHex,
-  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode, isYmhcVenue,
+  parseCourseDetails, parseFullDate, detailKey, AREA_MAP, cleanCode, isYmhcVenue, ymhcVenue,
 } from '@/lib/sheets'
 import { buildSheet, fmtAt, plainRow } from './helpers'
 import type { CellFormat, SheetMerge } from '@/lib/types'
@@ -364,29 +364,43 @@ describe('YMHC venue special-case (one-off admin data fix)', () => {
     expect(cleanCode('GT-A')).toBe('GT-A')
     expect(cleanCode('  ST   (FIN-Core) ')).toBe('ST (FIN-Core)')
   })
-  it('isYmhcVenue detects the venue-suffixed YMHC cell only', () => {
-    expect(isYmhcVenue('YMHC MN Common Room')).toBe(true)
-    expect(isYmhcVenue('YMHC\nMN Common Room')).toBe(true)
-    expect(isYmhcVenue('YMHC E4 Classroom')).toBe(true)
-    expect(isYmhcVenue('YMHC\nE4 Classroom')).toBe(true)
-    expect(isYmhcVenue('YMHC')).toBe(false)
+  // The venue wording has changed several times through the term; all four of these appeared
+  // in the live sheet at once, and each used to become its own course in the picker.
+  const VENUE_CELLS = [
+    'YMHC MN Common Room', 'YMHC\nMN Common Room',
+    'YMHC D3 Classroom', 'YMHC\nD3 Classroom',
+    'YMHC E4 Classroom', 'YMHC\nE4 Classroom',
+    'YMHC E4 classroom', // lowercase variant the admin also typed
+  ]
+
+  it('isYmhcVenue detects any venue wording, not a fixed list', () => {
+    for (const cell of VENUE_CELLS) expect(isYmhcVenue(cell), cell).toBe(true)
+    expect(isYmhcVenue('YMHC')).toBe(false)      // bare code is the course itself
+    expect(isYmhcVenue('  YMHC  ')).toBe(false)  // padding is not a venue
     expect(isYmhcVenue('GT-A')).toBe(false)
   })
-  it('routes the venue cell (raw or clean) to YMHC details and HLAM', () => {
-    expect(getDetailAbbr('YMHC MN Common Room')).toBe('YMHC')   // enrich from Sheet-2 YMHC
-    expect(getDetailAbbr('YMHC\nMN Common Room')).toBe('YMHC')  // raw newline form too
-    expect(getDetailAbbr('YMHC E4 Classroom')).toBe('YMHC')     // new room name also routes to YMHC
-    expect(getArea('YMHC MN Common Room')).toBe('HLAM')
-    expect(getArea('YMHC\nMN Common Room')).toBe('HLAM')
-    expect(getArea('YMHC E4 Classroom')).toBe('HLAM')           // new room name also HLAM
-    expect(getArea('YMHC')).toBe('HLAM')                        // plain YMHC already HLAM
+  it('extracts the venue half as the room', () => {
+    expect(ymhcVenue('YMHC\nMN Common Room')).toBe('MN Common Room')
+    expect(ymhcVenue('YMHC D3 Classroom')).toBe('D3 Classroom')
+    expect(ymhcVenue('YMHC E4 classroom')).toBe('E4 classroom')
   })
-  it('preserves the raw YMHC venue code (enrolment-stable) but cleans it for display', () => {
-    const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', 'YMHC\nMN Common Room', '', '', '']])
-    const parsed = parseSheetRows(data.sheet1)[0]
-    expect(parsed.course_code).toBe('YMHC\nMN Common Room') // code unchanged → existing picks survive
-    expect(cleanCode(parsed.course_code)).toBe('YMHC MN Common Room') // display form
-    expect(isYmhcVenue(parsed.course_code)).toBe(true)     // still routes to YMHC details + HLAM
+  it('routes every venue wording to YMHC details and HLAM', () => {
+    for (const cell of VENUE_CELLS) {
+      expect(getDetailAbbr(cell), cell).toBe('YMHC')  // enrich from Sheet-2 YMHC
+      expect(getArea(cell), cell).toBe('HLAM')
+    }
+    expect(getArea('YMHC')).toBe('HLAM')               // plain YMHC already HLAM
+  })
+  it('collapses every venue wording to ONE course code, with the venue as the room', () => {
+    const codes = new Set<string>()
+    for (const cell of VENUE_CELLS) {
+      const data = buildSheet([['Tuesday, 9 June, 2026', '09.15-10.30', cell, '', '', '']])
+      const parsed = parseSheetRows(data.sheet1)[0]
+      expect(parsed.course_code, cell).toBe('YMHC')    // one course, whatever the venue says
+      expect(parsed.room, cell).toBe(cleanCode(cell).replace(/^YMHC\s*/i, ''))
+      codes.add(parsed.course_code)
+    }
+    expect(codes.size).toBe(1) // ← the bug: this used to be 7 distinct courses
   })
 })
 
