@@ -367,14 +367,18 @@ describe('YMHC venue special-case (one-off admin data fix)', () => {
   it('isYmhcVenue detects the venue-suffixed YMHC cell only', () => {
     expect(isYmhcVenue('YMHC MN Common Room')).toBe(true)
     expect(isYmhcVenue('YMHC\nMN Common Room')).toBe(true)
+    expect(isYmhcVenue('YMHC E4 Classroom')).toBe(true)
+    expect(isYmhcVenue('YMHC\nE4 Classroom')).toBe(true)
     expect(isYmhcVenue('YMHC')).toBe(false)
     expect(isYmhcVenue('GT-A')).toBe(false)
   })
   it('routes the venue cell (raw or clean) to YMHC details and HLAM', () => {
     expect(getDetailAbbr('YMHC MN Common Room')).toBe('YMHC')   // enrich from Sheet-2 YMHC
     expect(getDetailAbbr('YMHC\nMN Common Room')).toBe('YMHC')  // raw newline form too
+    expect(getDetailAbbr('YMHC E4 Classroom')).toBe('YMHC')     // new room name also routes to YMHC
     expect(getArea('YMHC MN Common Room')).toBe('HLAM')
     expect(getArea('YMHC\nMN Common Room')).toBe('HLAM')
+    expect(getArea('YMHC E4 Classroom')).toBe('HLAM')           // new room name also HLAM
     expect(getArea('YMHC')).toBe('HLAM')                        // plain YMHC already HLAM
   })
   it('preserves the raw YMHC venue code (enrolment-stable) but cleans it for display', () => {

@@ -44,10 +44,10 @@ export function cleanCode(code: string): string {
 }
 
 // One-off admin data issue: the venue was typed into YMHC's schedule cell
-// ("YMHC MN Common Room"). Treat it as the HLAM elective YMHC for enrichment/area, while the
+// ("YMHC MN Common Room", now "YMHC E4 Classroom"). Treat it as the HLAM elective YMHC for enrichment/area, while the
 // caller keeps the admin's label as the display name.
 export function isYmhcVenue(code: string): boolean {
-  return /^YMHC\b/i.test(code) && /common\s*room/i.test(code)
+  return /^YMHC\b/i.test(code) && (/common\s*room|E4\s*classroom/i.test(code))
 }
 
 // Strip section suffix and program qualifiers to get the base abbreviation

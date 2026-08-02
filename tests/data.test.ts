@@ -14,22 +14,22 @@ describe('MESS data', () => {
     }
   })
 
-  it('lists the July lunch non-veg / fish-egg specials', () => {
+  it('lists the August lunch non-veg / fish-egg specials', () => {
     expect(MESS.MON.lunch.special).toContain('Egg Curry')
-    expect(MESS.TUE.lunch.special).toContain('Bengali Fish Curry')
-    expect(MESS.WED.lunch.special).toContain('Egg Masala')
-    expect(MESS.THU.lunch.special).toContain('Fish Curry (Nellore Chepala Pulusu)')
+    expect(MESS.TUE.lunch.special).toContain('Egg Pepper Roast')
+    expect(MESS.WED.lunch.special).toContain('Jileerre Chepala Pulusu')
+    expect(MESS.THU.lunch.special).toContain('Egg Tikka Masala')
     expect(MESS.FRI.lunch.special).toContain('Egg Curry')
     expect(MESS.SUN.lunch.special).toContain('Kerala Fish Curry')
     // Saturday lunch carries a paneer special (green) instead of a fish/egg dish.
     expect(MESS.SAT.lunch.special).toContain('Paneer Makkan Masala')
   })
 
-  it('lists the July dinner non-veg specials', () => {
-    expect(MESS.MON.dinner.special).toContain('Chilli Chicken')
-    expect(MESS.WED.dinner.special).toContain('Kadai Chicken')
-    expect(MESS.THU.dinner.special).toContain('Chicken Curry')
-    expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biriyani')
+  it('lists the August dinner non-veg specials', () => {
+    expect(MESS.MON.dinner.special).toContain('Bengali Fish Curry')
+    expect(MESS.WED.dinner.special).toContain('Chicken Kolhapuri')
+    expect(MESS.THU.dinner.special).toContain('Chicken Biryani')
+    expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biryani')
     expect(MESS.SAT.dinner.special).toContain('Egg Kolhapuri')
     expect(MESS.SUN.dinner.special).toContain('Butter Chicken')
   })
@@ -41,7 +41,7 @@ describe('MESS data', () => {
     }
   })
 
-  it('carries no Extras row anywhere in the July menu', () => {
+  it('carries no Extras row anywhere in the August menu', () => {
     for (const d of DAYS) {
       expect(MESS[d].breakfast.extras, d).toBeUndefined()
       expect(MESS[d].lunch.extras, d).toBeUndefined()
