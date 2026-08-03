@@ -14,24 +14,44 @@ describe('MESS data', () => {
     }
   })
 
-  it('lists the August lunch non-veg / fish-egg specials', () => {
-    expect(MESS.MON.lunch.special).toContain('Egg Curry')
+  it('lists the August lunch fish/egg specials (red row)', () => {
+    expect(MESS.MON.lunch.special).toContain('Bengali Fish Curry')
     expect(MESS.TUE.lunch.special).toContain('Egg Pepper Roast')
-    expect(MESS.WED.lunch.special).toContain('Jileerre Chepala Pulusu')
+    expect(MESS.WED.lunch.special).toContain('Fish Curry (Nellore Chepala Pulusu)')
     expect(MESS.THU.lunch.special).toContain('Egg Tikka Masala')
-    expect(MESS.FRI.lunch.special).toContain('Egg Curry')
-    expect(MESS.SUN.lunch.special).toContain('Kerala Fish Curry')
-    // Saturday lunch carries a paneer special (green) instead of a fish/egg dish.
-    expect(MESS.SAT.lunch.special).toContain('Paneer Makkan Masala')
+    expect(MESS.FRI.lunch.special).toContain('Kerala Fish Curry')
+    expect(MESS.SUN.lunch.special).toContain('Egg Burji')
+    // Saturday has no fish/egg dish — its only highlight is the green paneer gravy.
+    expect(MESS.SAT.lunch.special).toEqual(['Paneer Makkan Masala'])
+  })
+
+  it('lists the August lunch SPL VEG specials (green row)', () => {
+    expect(MESS.MON.lunch.special).toContain('Golden Gobi Corn Dry')
+    expect(MESS.TUE.lunch.special).toContain('Rajma Masala')
+    expect(MESS.WED.lunch.special).toContain('Gatte Ki Sabji')
+    expect(MESS.THU.lunch.special).toContain('Peanut-Green Gram Curry')
+    expect(MESS.FRI.lunch.special).toContain('Soya Chunk Curry')
+    expect(MESS.SUN.lunch.special).toContain('Masala Peanut (fry)')
   })
 
   it('lists the August dinner non-veg specials', () => {
-    expect(MESS.MON.dinner.special).toContain('Bengali Fish Curry')
-    expect(MESS.WED.dinner.special).toContain('Chicken Kolhapuri')
-    expect(MESS.THU.dinner.special).toContain('Chicken Biryani')
-    expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biryani')
+    expect(MESS.MON.dinner.special).toContain('Chicken Manchurian / Chicken Jalfrezi')
+    expect(MESS.WED.dinner.special).toContain('Chicken Masala')
+    expect(MESS.THU.dinner.special).toContain('Chicken Kolapuri')
+    expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biriyani')
     expect(MESS.SAT.dinner.special).toContain('Egg Kolhapuri')
     expect(MESS.SUN.dinner.special).toContain('Butter Chicken')
+    // Tuesday dinner is a Combo Menu day with no separate veg/non-veg line.
+    expect(MESS.TUE.dinner.special).toBeUndefined()
+  })
+
+  it('pairs a green veg special with each dinner non-veg special', () => {
+    expect(MESS.MON.dinner.special).toContain('Paneer Manchurian / Paneer Jalfrezi')
+    expect(MESS.WED.dinner.special).toContain('Paneer Masala')
+    expect(MESS.THU.dinner.special).toContain('Shahi Paneer')
+    expect(MESS.FRI.dinner.special).toContain('Hyd Paneer Dum Biriyani')
+    expect(MESS.SAT.dinner.special).toContain('Soya')
+    expect(MESS.SUN.dinner.special).toContain('Paneer Butter Masala')
   })
 
   it('offers an egg option at every breakfast', () => {
