@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { CANONICAL_SLOTS, SLOT_END } from '@/lib/free-time'
+import { EXAM_NOTE, isEndTermExam, isMyExam } from '@/lib/exams'
 import type { Course } from '@/lib/types'
 
 const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
@@ -18,8 +19,9 @@ const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZ
 const DetailCtx = createContext<{
   att: Record<string, string>
   notes: Record<string, string>
+  codes: Set<string>          // the viewer's picked course codes — flags which exams are theirs
   onOpen: (c: Course) => void
-}>({ att: {}, notes: {}, onOpen: () => {} })
+}>({ att: {}, notes: {}, codes: new Set(), onOpen: () => {} })
 
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -61,7 +63,7 @@ export default function SchedulePage() {
   )
 
   // Shared, deduped data (see lib/hooks.ts). selectedIds = the user's picked session ids.
-  const { ids: selectedIds } = useUserSessions(userId)
+  const { ids: selectedIds, codes: myCodes } = useUserSessions(userId)
   const { map: attMap, setStatus: markAttendance } = useAttendance(userId)
   const { map: noteMap, setNote } = useNotes(userId)
   const { courses: windowCourses, isLoading: loading } = useWindowCourses(weekDates[0], weekDates[6])
@@ -136,7 +138,7 @@ export default function SchedulePage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <DetailCtx.Provider value={{ att: attMap, notes: noteMap, onOpen: openDetail }}>
+        <DetailCtx.Provider value={{ att: attMap, notes: noteMap, codes: myCodes, onOpen: openDetail }}>
           {loading ? (
             <div className="p-4 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
           ) : view === 'week' ? (
@@ -154,11 +156,12 @@ export default function SchedulePage() {
             <DialogTitle>{selected.is_common ? selected.course_name : selected.course_code}</DialogTitle>
             {!selected.is_common && <p className="text-sm text-muted-foreground -mt-2">{selected.course_name}</p>}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><Clock size={12} />{selected.session_date && format(parseISO(selected.session_date), 'EEE, d MMM')} · {selected.start_time}–{selected.end_time}</span>
+              <span className="flex items-center gap-1"><Clock size={12} />{selected.session_date && format(parseISO(selected.session_date), 'EEE, d MMM')} · {selected.time_label ?? `${selected.start_time}–${selected.end_time}`}</span>
               {selected.room && <span className="flex items-center gap-1"><MapPin size={12} />Class {selected.room}</span>}
               {selected.instructor && <span className="flex items-center gap-1"><User size={12} />{selected.instructor}</span>}
             </div>
             {selected.is_cancelled && <p className="text-xs font-bold text-red-600">This class is cancelled.</p>}
+            {isEndTermExam(selected) && <p className="text-xs text-amber-700 dark:text-amber-400">{EXAM_NOTE}</p>}
 
             {!selected.is_common && !selected.is_cancelled && (
               <div>
@@ -178,6 +181,9 @@ export default function SchedulePage() {
               </div>
             )}
 
+            {/* Notes are keyed to a real course row; the end-term papers are static app data, so
+                they can't carry one. */}
+            {!isEndTermExam(selected) && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1.5">Reminder note <span className="font-normal">(you'll get a push at 8 PM the day before)</span></p>
               <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} rows={3} maxLength={500}
@@ -188,6 +194,7 @@ export default function SchedulePage() {
                 <Button size="sm" onClick={() => saveNote(selected)}>Save</Button>
               </div>
             </div>
+            )}
           </DialogContent>
         )}
       </Dialog>
@@ -255,21 +262,24 @@ function Row({ time, weekDates, byDate, selectedIds }: {
 }
 
 function Block({ course, mine }: { course: Course; mine: boolean }) {
-  const { att, notes, onOpen } = useContext(DetailCtx)
+  const { att, notes, codes, onOpen } = useContext(DetailCtx)
   const cancelled = course.is_cancelled
   const common = course.is_common
+  const exam = isEndTermExam(course)
+  const myExam = exam && isMyExam(course, codes)
   const changed = recentlyChanged(course)
   const status = att[course.id]
   const hasNote = !!notes[course.id]
   return (
-    <button onClick={() => onOpen(course)} title="Details · attendance · reminder note" className={cn('relative w-full text-left rounded-md px-1.5 py-1 text-[10px] leading-tight border',
+    <button onClick={() => onOpen(course)} title={exam ? 'End-term exam — tap for details' : 'Details · attendance · reminder note'} className={cn('relative w-full text-left rounded-md px-1.5 py-1 text-[10px] leading-tight border',
       cancelled ? 'bg-red-50 border-red-200 dark:bg-red-950/50 dark:border-red-900'
         : status === 'present' ? 'bg-green-50 border-green-300 dark:bg-green-950/40 dark:border-green-800'
         : status === 'absent' ? 'bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-red-800'
         : common ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900'
         : mine ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-950/50 dark:border-indigo-800'
         : 'bg-card border-border',
-      changed && !cancelled && 'ring-1 ring-indigo-400 dark:ring-indigo-500')}>
+      changed && !cancelled && 'ring-1 ring-indigo-400 dark:ring-indigo-500',
+      myExam && 'ring-1 ring-amber-500 dark:ring-amber-500')}>
       <span className="absolute top-0.5 right-0.5 flex gap-0.5">
         {hasNote && <StickyNote size={9} className="text-amber-500" />}
         {changed && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
@@ -278,7 +288,12 @@ function Block({ course, mine }: { course: Course; mine: boolean }) {
         cancelled ? 'text-red-600 line-through' : common ? 'text-amber-700 dark:text-amber-400' : 'text-foreground')}>
         {common ? course.course_name : course.course_code}
       </p>
-      {course.end_time && <p className="text-muted-foreground">{course.end_time}</p>}
+      {/* Exams carry a slot label (Morning/Afternoon/Evening) instead of an end time. */}
+      {course.time_label ? (
+        <p className="text-amber-700 dark:text-amber-400 font-medium">{course.time_label}{myExam && ' · yours'}</p>
+      ) : (
+        course.end_time && <p className="text-muted-foreground">{course.end_time}</p>
+      )}
       {course.room && <p className="text-muted-foreground truncate">Class {course.room}</p>}
     </button>
   )
@@ -323,9 +338,11 @@ function DayView({ weekDates, byDate, todayISO, selectedDate, setSelectedDate, s
 }
 
 function DayRow({ course, mine }: { course: Course; mine: boolean }) {
-  const { att, notes, onOpen } = useContext(DetailCtx)
+  const { att, notes, codes, onOpen } = useContext(DetailCtx)
   const cancelled = course.is_cancelled
   const common = course.is_common
+  const exam = isEndTermExam(course)
+  const myExam = exam && isMyExam(course, codes)
   const changed = recentlyChanged(course)
   const status = att[course.id]
   const hasNote = !!notes[course.id]
@@ -338,14 +355,24 @@ function DayRow({ course, mine }: { course: Course; mine: boolean }) {
         : 'bg-card border-border',
       changed && !cancelled && 'ring-1 ring-indigo-300 dark:ring-indigo-700')}>
       <div className="shrink-0 text-center w-16">
-        <p className={cn('text-xs font-bold', cancelled ? 'text-red-500 line-through' : 'text-indigo-600 dark:text-indigo-400')}>{course.start_time}</p>
-        {course.end_time && <p className="text-[10px] text-muted-foreground">{course.end_time}</p>}
+        {course.time_label ? (
+          <p className="text-xs font-bold text-amber-700 dark:text-amber-400">{course.time_label}</p>
+        ) : (
+          <>
+            <p className={cn('text-xs font-bold', cancelled ? 'text-red-500 line-through' : 'text-indigo-600 dark:text-indigo-400')}>{course.start_time}</p>
+            {course.end_time && <p className="text-[10px] text-muted-foreground">{course.end_time}</p>}
+          </>
+        )}
       </div>
       <div className={cn('w-px self-stretch', cancelled ? 'bg-red-200' : 'bg-border')} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           {common ? (
-            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1"><GraduationCap size={12} /> {course.course_name}</span>
+            <>
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1"><GraduationCap size={12} /> {course.course_name}</span>
+              {exam && <span className="text-[9px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded">END-TERM</span>}
+              {myExam && <span className="text-[9px] font-bold text-white bg-amber-600 px-1 py-0.5 rounded">YOURS</span>}
+            </>
           ) : (
             <>
               <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400">{course.course_code}</span>

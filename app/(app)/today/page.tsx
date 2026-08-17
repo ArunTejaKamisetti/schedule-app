@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
 import { BUS, BUS_NOTE, BUS_STOPS } from '@/lib/bus'
+import { EXAM_NOTE, hasExamsOn, isEndTermExam, isMyExam } from '@/lib/exams'
 
 const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 type HomeTab = 'courses' | 'mess' | 'bus'
@@ -52,7 +53,7 @@ export default function TodayPage() {
   const { userId, user, unreadCount } = useSession()
   const year = user?.year === 1 ? 1 : 2
   // Shared, deduped data — no per-mount/per-focus refetch (see lib/hooks.ts).
-  const { courses: mySessions, isLoading: loadingMine } = useUserSessions(userId)
+  const { courses: mySessions, codes: myCodes, isLoading: loadingMine } = useUserSessions(userId)
   const { events: commonEvents } = useCommonEvents(userId ? year : null)
   const { map: attendance, setStatus: markAttendance } = useAttendance(userId)
   const { map: noteMap } = useNotes(userId)
@@ -253,8 +254,9 @@ export default function TodayPage() {
             {allForDate.length > 0 && (
               <div className="space-y-2.5 mt-3">
                 {allForDate.map((course) => (
-                  <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} />
+                  <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} mine={isMyExam(course, myCodes)} />
                 ))}
+                <ExamNote date={selectedDate} />
               </div>
             )}
           </>
@@ -267,8 +269,9 @@ export default function TodayPage() {
         ) : (
           <div className="space-y-2.5">
             {allForDate.map((course) => (
-              <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} />
+              <ClassCard key={course.id} course={course} status={attendance[course.id]} note={noteMap[course.id]} onMark={markAttendance} mine={isMyExam(course, myCodes)} />
             ))}
+            <ExamNote date={selectedDate} />
           </div>
         )}
       </div>
@@ -278,14 +281,16 @@ export default function TodayPage() {
   )
 }
 
-function ClassCard({ course, status, note, onMark }: {
+function ClassCard({ course, status, note, onMark, mine }: {
   course: Course
   status?: string
   note?: string
   onMark: (courseId: string, status: 'present' | 'absent' | null) => void
+  mine?: boolean
 }) {
   const cancelled = course.is_cancelled
   const common = course.is_common
+  const exam = isEndTermExam(course)
   const changed = recentlyChanged(course)
   return (
     <div className={cn(
@@ -305,6 +310,14 @@ function ClassCard({ course, status, note, onMark }: {
             ) : (
               <span className="text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-400">{course.course_code}</span>
             )}
+            {exam && (
+              <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 px-1.5 py-0.5 rounded">
+                END-TERM EXAM
+              </span>
+            )}
+            {exam && mine && (
+              <span className="text-[10px] font-bold text-white bg-amber-600 px-1.5 py-0.5 rounded">YOURS</span>
+            )}
             {cancelled && (
               <span className="text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle size={8} /> CANCELLED
@@ -323,8 +336,15 @@ function ClassCard({ course, status, note, onMark }: {
           )}
         </div>
         <div className="shrink-0 text-right">
-          <p className={cn('text-sm font-bold', cancelled ? 'text-red-500 line-through' : 'text-foreground')}>{course.start_time}</p>
-          {course.end_time && <p className="text-[11px] text-muted-foreground">{course.end_time}</p>}
+          {/* Exams publish a slot, not a clock time — show the slot in the time's place. */}
+          {course.time_label ? (
+            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">{course.time_label}</p>
+          ) : (
+            <>
+              <p className={cn('text-sm font-bold', cancelled ? 'text-red-500 line-through' : 'text-foreground')}>{course.start_time}</p>
+              {course.end_time && <p className="text-[11px] text-muted-foreground">{course.end_time}</p>}
+            </>
+          )}
         </div>
       </div>
 
@@ -371,6 +391,17 @@ function ClassCard({ course, status, note, onMark }: {
         </div>
       )}
     </div>
+  )
+}
+
+// The Programmes Office's exam-day instructions, shown once under the list on days that have
+// end-term papers.
+function ExamNote({ date }: { date: string }) {
+  if (!hasExamsOn(date)) return null
+  return (
+    <p className="flex items-start gap-1.5 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+      <GraduationCap size={13} className="mt-px shrink-0" /> <span>{EXAM_NOTE}</span>
+    </p>
   )
 }
 

@@ -7,6 +7,7 @@ export interface Course {
   session_date: string | null   // ISO date (YYYY-MM-DD) from the sheet — source of truth
   start_time: string | null
   end_time: string | null
+  time_label?: string | null    // shown INSTEAD of a clock time (end-term exams publish slots, not times)
   room: string | null
   credits: string | null
   area: string | null

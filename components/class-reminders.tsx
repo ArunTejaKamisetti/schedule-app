@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from './session-provider'
 import { useUserSessions, useCommonEvents } from '@/lib/hooks'
 import { reminderText, toMinutes } from '@/lib/reminders'
+import { isEndTermExam } from '@/lib/exams'
 
 // Per-user class reminders WITHOUT any server cron: while the app is open, the browser
 // schedules a local notification ~14 min before each of today's classes. Opt-out is a simple
@@ -65,6 +66,9 @@ export function ClassReminders() {
 
       for (const c of todays) {
         if (c.is_cancelled || !c.start_time) continue
+        // End-term papers publish a slot, not a start time — a "14 min before" ping off a
+        // placeholder time would be wrong, so they never arm a timer.
+        if (isEndTermExam(c)) continue
         const occ = `${c.start_time}::${c.course_code}`
         if (fired.has(occ)) continue
         const delayMin = toMinutes(c.start_time) - LEAD_MIN - nowMin

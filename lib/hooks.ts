@@ -11,6 +11,7 @@ import useSWR, { type SWRConfiguration } from 'swr'
 import { useCallback, useMemo } from 'react'
 import type { Course, Friendship, User } from './types'
 import { summarizeAttendance, istNow } from './attendance'
+import { withEndTermExams } from './exams'
 
 export const fetcher = async (url: string) => {
   const r = await fetch(url)
@@ -42,10 +43,15 @@ export function useUserSessions(userId?: string | null) {
 
 // Common events (exams / holidays) for a year — shared across all users of that year, so this key
 // is edge-cached. Pass `null` to disable (e.g. before the year is known or reminders are off).
+// The 2nd-year end-term papers (lib/exams.ts) aren't in the sheet, so they're appended here — one
+// place that every consumer of common events (Today, Compare, reminders) already reads.
 export function useCommonEvents(year: number | null) {
   const key = year == null ? null : `/api/courses?common=1&year=${year === 1 ? 1 : 2}`
   const { data, isLoading } = useSWR<Course[]>(key)
-  const events = useMemo(() => (Array.isArray(data) ? data : []), [data])
+  const events = useMemo(
+    () => withEndTermExams(Array.isArray(data) ? data : [], year),
+    [data, year]
+  )
   return { events, isLoading }
 }
 
@@ -57,10 +63,15 @@ export function useCatalog() {
 }
 
 // Every course/session within a date window (both years' rows). Shared → edge-cached.
+// End-term papers are appended for the same window; they're tagged year 2, and callers already
+// scope common events by the viewer's year.
 export function useWindowCourses(from?: string | null, to?: string | null) {
   const key = from && to ? `/api/courses?from=${from}&to=${to}` : null
   const { data, isLoading } = useSWR<Course[]>(key)
-  const courses = useMemo(() => (Array.isArray(data) ? data : []), [data])
+  const courses = useMemo(
+    () => (from && to ? withEndTermExams(Array.isArray(data) ? data : [], 2, from, to) : []),
+    [data, from, to]
+  )
   return { courses, isLoading }
 }
 
