@@ -15,7 +15,7 @@ import { AlertsPanel } from '@/components/alerts-panel'
 import { toast } from 'sonner'
 import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
-import { BUS, BUS_NOTE, BUS_STOPS } from '@/lib/bus'
+import { BUS_FLEETS, busOrigins, type BusFleet } from '@/lib/bus'
 import { EXAM_NOTE, hasExamsOn, isEndTermExam, isMyExam } from '@/lib/exams'
 
 const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -525,6 +525,7 @@ function MealCard({ title, emoji, meal }: { title: string; emoji: string; meal: 
 
 // ─── Bus schedule ─────────────────────────────────────────────────────────────
 function BusView() {
+  const [fleet, setFleet] = useState<BusFleet>('all')
   const [from, setFrom] = useState('All')
   // Current IST time as minutes-since-midnight, captured once when the tab opens — used to pick and
   // scroll to the next bus. Reading the clock in a lazy initializer keeps render pure/idempotent.
@@ -533,22 +534,37 @@ function BusView() {
     return ist.getUTCHours() * 60 + ist.getUTCMinutes()
   })
 
-  const trips = from === 'All' ? BUS : BUS.filter((t) => t.from === from)
+  const { trips: fleetTrips, note } = BUS_FLEETS[fleet]
+  const origins = useMemo(() => busOrigins(fleetTrips), [fleetTrips])
+  // A stop the newly picked fleet doesn't serve would filter everything away — fall back to "All".
+  const activeFrom = origins.includes(from) ? from : 'All'
+  const trips = activeFrom === 'All' ? fleetTrips : fleetTrips.filter((t) => t.from === activeFrom)
   const nextIdx = trips.findIndex((t) => t.min >= nowMin)
 
-  // Jump straight to the next bus when the tab opens (or the filter changes).
+  // Jump straight to the next bus when the tab opens (or a filter changes).
   const nextRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     nextRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' })
-  }, [from, nextIdx])
+  }, [fleet, activeFrom, nextIdx])
 
   return (
     <div className="space-y-3">
+      {/* Fleet: All · Student · Staff */}
+      <div className="flex gap-1 bg-muted rounded-xl p-0.5">
+        {(['all', 'student', 'staff'] as const).map((f) => (
+          <button key={f} onClick={() => setFleet(f)}
+            className={cn('flex-1 py-1.5 rounded-lg text-sm font-semibold transition-colors',
+              fleet === f ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}>
+            {BUS_FLEETS[f].label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
-        {['All', ...BUS_STOPS].map((s) => (
+        {['All', ...origins].map((s) => (
           <button key={s} onClick={() => setFrom(s)}
             className={cn('shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors',
-              from === s ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-border text-muted-foreground bg-card')}>
+              activeFrom === s ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-border text-muted-foreground bg-card')}>
             {s === 'All' ? 'All buses' : s}
           </button>
         ))}
@@ -557,11 +573,12 @@ function BusView() {
       <div className="space-y-2">
         {trips.map((t, i) => {
           const isNext = i === nextIdx
+          const staff = t.kind === 'staff'
           return (
-            <div key={`${t.time}-${i}`} ref={isNext ? nextRef : undefined} className={cn('flex items-center gap-3 rounded-xl border p-3 scroll-mt-4',
+            <div key={`${t.kind}-${t.time}-${i}`} ref={isNext ? nextRef : undefined} className={cn('flex items-center gap-3 rounded-xl border p-3 scroll-mt-4',
               isNext ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 ring-1 ring-indigo-300 dark:ring-indigo-700' : 'border-border bg-card')}>
               <div className="shrink-0 w-16 text-center">
-                <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{t.time.replace(' ', '')}</p>
+                <p className={cn('text-sm font-bold', staff ? 'text-amber-600 dark:text-amber-400' : 'text-indigo-600 dark:text-indigo-400')}>{t.time.replace(' ', '')}</p>
                 {isNext && <span className="text-[9px] font-bold text-white bg-indigo-600 px-1.5 py-0.5 rounded-full">NEXT</span>}
               </div>
               <div className="w-px self-stretch bg-border" />
@@ -575,12 +592,22 @@ function BusView() {
                   ))}
                 </div>
               </div>
-              {t.maingate && <span className="shrink-0 text-[9px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-950 px-1.5 py-0.5 rounded">→ MAIN GATE</span>}
+              <div className="shrink-0 flex flex-col items-end gap-1">
+                {/* Only the merged view needs the fleet spelled out. */}
+                {fleet === 'all' && (
+                  <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded',
+                    staff ? 'text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950'
+                      : 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950')}>
+                    {staff ? 'STAFF' : 'STUDENT'}
+                  </span>
+                )}
+                {t.maingate && <span className="text-[9px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-950 px-1.5 py-0.5 rounded">→ MAIN GATE</span>}
+              </div>
             </div>
           )
         })}
       </div>
-      <p className="text-[11px] text-muted-foreground text-center pt-1">{BUS_NOTE}</p>
+      <p className="text-[11px] text-muted-foreground text-center pt-1">{note}</p>
     </div>
   )
 }
