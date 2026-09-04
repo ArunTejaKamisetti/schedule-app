@@ -14,44 +14,72 @@ describe('MESS data', () => {
     }
   })
 
-  it('lists the August lunch fish/egg specials (red row)', () => {
-    expect(MESS.MON.lunch.special).toContain('Bengali Fish Curry')
-    expect(MESS.TUE.lunch.special).toContain('Egg Pepper Roast')
-    expect(MESS.WED.lunch.special).toContain('Fish Curry (Nellore Chepala Pulusu)')
-    expect(MESS.THU.lunch.special).toContain('Egg Tikka Masala')
-    expect(MESS.FRI.lunch.special).toContain('Kerala Fish Curry')
-    expect(MESS.SUN.lunch.special).toContain('Egg Burji')
-    // Saturday has no fish/egg dish — its only highlight is the green paneer gravy.
+  it('lists the September lunch fish/egg specials (red row)', () => {
+    expect(MESS.MON.lunch.special).toContain('Egg Pepper Roast')
+    expect(MESS.TUE.lunch.special).toContain('Bengali Fish Curry')
+    expect(MESS.WED.lunch.special).toContain('Egg Tikka Masala')
+    expect(MESS.THU.lunch.special).toContain('Fish Curry (Nellore Chepala Pulusu)')
+    expect(MESS.FRI.lunch.special).toContain('Egg Curry')
+    expect(MESS.SUN.lunch.special).toContain('Kerala Fish Curry')
+    // Saturday prints no SPL VEG or FISH/EGG row — its only highlight is the green paneer gravy.
     expect(MESS.SAT.lunch.special).toEqual(['Paneer Makkan Masala'])
   })
 
-  it('lists the August lunch SPL VEG specials (green row)', () => {
-    expect(MESS.MON.lunch.special).toContain('Golden Gobi Corn Dry')
+  it('lists the September lunch SPL VEG specials (green row)', () => {
+    expect(MESS.MON.lunch.special).toContain('Golden Corn Gobhi Dry')
     expect(MESS.TUE.lunch.special).toContain('Rajma Masala')
-    expect(MESS.WED.lunch.special).toContain('Gatte Ki Sabji')
-    expect(MESS.THU.lunch.special).toContain('Peanut-Green Gram Curry')
-    expect(MESS.FRI.lunch.special).toContain('Soya Chunk Curry')
-    expect(MESS.SUN.lunch.special).toContain('Masala Peanut (fry)')
+    expect(MESS.WED.lunch.special).toContain('Soya Curry')
+    expect(MESS.THU.lunch.special).toContain('Besan Gatte')
+    expect(MESS.FRI.lunch.special).toContain('Bhindi Kurkure')
+    expect(MESS.SUN.lunch.special).toContain('Lobia Masala')
   })
 
-  it('lists the August dinner non-veg specials', () => {
-    expect(MESS.MON.dinner.special).toContain('Chicken Manchurian / Chicken Jalfrezi')
-    expect(MESS.WED.dinner.special).toContain('Chicken Masala')
-    expect(MESS.THU.dinner.special).toContain('Chicken Kolapuri')
+  it('lists the September dinner non-veg specials', () => {
+    expect(MESS.MON.dinner.special).toContain('Chilli Chicken')
+    expect(MESS.WED.dinner.special).toContain('Kadai Chicken')
+    expect(MESS.THU.dinner.special).toContain('Chicken Kolhapuri')
     expect(MESS.FRI.dinner.special).toContain('Hyd Chicken Dum Biriyani')
     expect(MESS.SAT.dinner.special).toContain('Egg Kolhapuri')
     expect(MESS.SUN.dinner.special).toContain('Butter Chicken')
-    // Tuesday dinner is a Combo Menu day with no separate veg/non-veg line.
+    // Tuesday dinner prints no separate veg/non-veg line.
     expect(MESS.TUE.dinner.special).toBeUndefined()
   })
 
   it('pairs a green veg special with each dinner non-veg special', () => {
-    expect(MESS.MON.dinner.special).toContain('Paneer Manchurian / Paneer Jalfrezi')
-    expect(MESS.WED.dinner.special).toContain('Paneer Masala')
+    expect(MESS.MON.dinner.special).toContain('Chilli Paneer')
+    expect(MESS.WED.dinner.special).toContain('Kadai Paneer')
     expect(MESS.THU.dinner.special).toContain('Shahi Paneer')
     expect(MESS.FRI.dinner.special).toContain('Hyd Paneer Dum Biriyani')
-    expect(MESS.SAT.dinner.special).toContain('Soya')
+    expect(MESS.SAT.dinner.special).toContain('Peanut Masala')
     expect(MESS.SUN.dinner.special).toContain('Paneer Butter Masala')
+  })
+
+  // The two "Combo Menu" days print a short dinner: Friday drops chapati, veg gravy and
+  // fryums entirely, Monday drops the veg gravy, veg dry and curd rows.
+  it('keeps the Monday and Friday combo dinners short', () => {
+    expect(MESS.FRI.dinner.veg).toEqual(
+      ['Onion Salad', 'Mirchi Ka Salan', 'Onion Cucumber Raitha', 'Fruit Custard', 'Pickle']
+    )
+    expect(MESS.MON.dinner.veg).not.toContain('Curd')
+    expect(MESS.MON.dinner.veg.some((v) => /chapati/i.test(v))).toBe(true)
+  })
+
+  it('serves the sweet/dessert rows only on the days that print one', () => {
+    const has = (items: string[], re: RegExp) => items.some((v) => re.test(v))
+    // Lunch "Sweet" row: Wednesday and Saturday only.
+    expect(has(MESS.WED.lunch.veg, /Carrot Halwa/)).toBe(true)
+    expect(has(MESS.SAT.lunch.veg, /Sweet Boondi/)).toBe(true)
+    for (const d of ['MON', 'TUE', 'THU', 'FRI', 'SUN']) {
+      expect(has(MESS[d].lunch.veg, /halwa|boondi|kheer|custard|jamun/i), d).toBe(false)
+    }
+    // Dinner "Dessert" row: every day except Wednesday and Saturday.
+    for (const [d, sweet] of [['MON', /Gulab Jamun/], ['TUE', /Ice-cream/], ['THU', /Semiya Kheer/],
+      ['FRI', /Fruit Custard/], ['SUN', /Balushahi/]] as [string, RegExp][]) {
+      expect(has(MESS[d].dinner.veg, sweet), d).toBe(true)
+    }
+    for (const d of ['WED', 'SAT']) {
+      expect(has(MESS[d].dinner.veg, /halwa|boondi|kheer|custard|jamun|ice-cream|balushahi/i), d).toBe(false)
+    }
   })
 
   it('offers an egg option at every breakfast', () => {
@@ -61,7 +89,7 @@ describe('MESS data', () => {
     }
   })
 
-  it('carries no Extras row anywhere in the August menu', () => {
+  it('carries no Extras row anywhere in the September menu', () => {
     for (const d of DAYS) {
       expect(MESS[d].breakfast.extras, d).toBeUndefined()
       expect(MESS[d].lunch.extras, d).toBeUndefined()
