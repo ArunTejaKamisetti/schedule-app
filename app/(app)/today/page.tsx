@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { format, addDays, parseISO } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { User, AlertTriangle, DoorOpen, GraduationCap, CalendarCheck, Clock, Check, X, StickyNote, BookOpen, UtensilsCrossed, Bus, ArrowRight, DownloadCloud, Bell, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from '@/components/session-provider'
@@ -17,13 +17,11 @@ import type { Course } from '@/lib/types'
 import { MESS, MESS_NOTE, type Meal } from '@/lib/mess'
 import { BUS_FLEETS, busOrigins, type BusFleet } from '@/lib/bus'
 import { EXAM_NOTE, hasExamsOn, isEndTermExam, isMyExam } from '@/lib/exams'
+import { TERM_DATES, localISO } from '@/lib/term'
 
 const WD_CODE = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 type HomeTab = 'courses' | 'mess' | 'bus'
 
-// Full term window — every day is selectable on the scroll rail.
-const TERM_START = '2026-06-08'
-const TERM_END = '2026-08-31'
 const CHANGE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000 // highlight a change for 3 days after the edit
 
 const CHANGE_LABEL: Record<string, string> = {
@@ -31,23 +29,10 @@ const CHANGE_LABEL: Record<string, string> = {
   rescheduled: 'Rescheduled', room_change: 'Class changed', cancelled: 'Cancelled',
 }
 
-function localISO(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 function recentlyChanged(c: Course): boolean {
   if (!c.last_changed_at || !c.change_kind) return false
   return Date.now() - new Date(c.last_changed_at).getTime() < CHANGE_WINDOW_MS
 }
-
-// All ISO dates across the term, in order.
-const TERM_DATES: string[] = (() => {
-  const out: string[] = []
-  let d = parseISO(TERM_START)
-  const end = parseISO(TERM_END)
-  while (d <= end) { out.push(localISO(d)); d = addDays(d, 1) }
-  return out
-})()
 
 export default function TodayPage() {
   const { userId, user, unreadCount } = useSession()

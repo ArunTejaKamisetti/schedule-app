@@ -37,8 +37,9 @@ function CompareContent() {
     friends.find((fr) => fr.friend_id === friendId)?.friend?.display_name ?? 'Friend'
   const loading = !userId || !friendId || loadingMine || loadingTheirs
 
-  // Include common events (mid/end-term exams) so the strip covers the whole term to 31 Aug —
-  // both friends "share" those days. Enrolled classes alone stop in mid-August.
+  // Include common events (holidays, mid/end-term exams) so the strip covers the whole term —
+  // both friends "share" those days, and enrolled classes alone stop before the exam weeks.
+  // Derived from the data, so this needs no edit when the term rolls over (unlike lib/term.ts).
   const dates = useMemo(() => {
     const set = new Set<string>()
     for (const c of [...mine, ...theirs, ...common]) if (c.session_date) set.add(c.session_date)
