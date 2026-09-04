@@ -27,7 +27,7 @@ export function makeCourse(over: Partial<Course> = {}): Course {
   }
 }
 
-// Standard two-row header used by the real "Term IV Schedule" sheet:
+// Standard two-row header used by the real "Term V Schedule" sheet:
 //   row 0 = programme names, row 1 = division/section codes (D1, D2, E1, E2…).
 // Body rows are [date, time, ...section cells]. Mirrors the live layout.
 const HEADER: string[][] = [

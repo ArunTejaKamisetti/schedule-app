@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getDetailAbbr, getArea, detailKey } from '@/lib/sheets'
+import { fetchBothSheetTabsWithFormatting, parseCourseDetails, getArea, detailKey } from '@/lib/sheets'
 import { SHEET_SOURCES, type SheetSource } from '@/lib/sheets-config'
 import { diffSheetData } from '@/lib/diff'
 import { notifyAffectedUsers } from '@/lib/notify'
@@ -85,8 +85,9 @@ async function syncOneSource(supabase: SB, source: SheetSource) {
       last_synced_at: syncStartedAt,
     }))
 
-    // Enrich from Course Details. 2nd-year (division) path is unchanged; 1st-year (section)
-    // looks up name/credit by abbr and faculty by (abbr, section). Events get no enrichment.
+    // Enrich from Course Details. 2nd-year (division) looks a row up by the exact code, then by
+    // the section-stripped key; 1st-year (section) looks up name/credit by abbr and faculty by
+    // (abbr, section). Events get no enrichment.
     const enrichedRows = rows.map((r) => {
       if (r.is_common) return { ...r, area: null }
       if (source.layout === 'section') {
@@ -101,7 +102,8 @@ async function syncOneSource(supabase: SB, source: SheetSource) {
           area: null,
         }
       }
-      const detail = detailsMap.get(getDetailAbbr(r.course_code))
+      const dk = detailKey(r.course_code, r.sheet_tab, 'division')
+      const detail = detailsMap.get(dk.primary) ?? detailsMap.get(dk.fallback)
       return {
         ...r,
         course_name: detail?.name || r.course_name,

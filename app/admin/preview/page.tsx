@@ -37,7 +37,7 @@ export default async function AdminPreviewPage() {
             const t = (data as any)[tab]
             return (
               <div key={tab} style={{ marginBottom: 32 }}>
-                <h2 style={{ color: '#22c55e' }}>{tab === 'sheet1' ? 'Term IV Schedule' : 'Course Details'}</h2>
+                <h2 style={{ color: '#22c55e' }}>{tab === 'sheet1' ? 'Term V Schedule' : 'Course Details'}</h2>
                 <p style={{ color: '#888', fontSize: 13 }}>{t.row_count} rows · {t.parsed_count} parsed</p>
                 <p><strong>Headers:</strong> {t.headers.join(' | ')}</p>
                 <br />

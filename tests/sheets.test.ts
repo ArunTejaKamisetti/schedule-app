@@ -275,21 +275,22 @@ describe('parseCourseDetails — section layout (faculty per section group)', ()
   })
   it('detailKey targets ABBR|SECTION with an ABBR fallback', () => {
     expect(detailKey('SM', 'A', 'section')).toEqual({ primary: 'SM|A', fallback: 'SM' })
-    expect(detailKey('GT-A', 'B', 'division').primary).toBe('GT')
+    expect(detailKey('GT-A', 'B', 'division')).toEqual({ primary: 'GT-A', fallback: 'GT' })
   })
 })
 
 describe('getArea — programme qualifiers take priority over base-abbr map', () => {
   it('routes FIN/LSM core & elective by qualifier, not base abbreviation', () => {
-    expect(getArea('CV (FIN-Core)')).toBe('FIN Core')   // not FAC (CV→FAC in AREA_MAP)
-    expect(getArea('DS-A (LSM-Core)')).toBe('LSM Core')
-    expect(getArea('FC (FIN)')).toBe('FIN Elective')
-    expect(getArea('HSCM (LSM)')).toBe('LSM Elective')
+    expect(getArea('IF (FIN-Core)')).toBe('FIN Core')   // not FAC (IF→FAC in AREA_MAP)
+    expect(getArea('AL (LSM-Core)')).toBe('LSM Core')
+    expect(getArea('FS (LSM)')).toBe('LSM Elective')    // not HLAM (FS→HLAM in AREA_MAP)
+    expect(getArea('GT (FIN)')).toBe('FIN Elective')
   })
   it('falls back to the area map for plain electives', () => {
     expect(getArea('GT-A')).toBe('ECO')
-    expect(getArea('SBRA')).toBe('SM')
-    expect(getArea('CV')).toBe('FAC')
+    expect(getArea('MAJVCG-B')).toBe('SM')
+    expect(getArea('FRA')).toBe('FAC')
+    expect(getArea('SM')).toBe('MM')                    // Strategic Marketing, not the SM area
   })
   it('returns Other for unknown codes', () => {
     expect(getArea('ZZZ-Q')).toBe('Other')
@@ -304,12 +305,12 @@ describe('getBaseAbbr / getDetailAbbr — cross-sheet matching', () => {
     expect(getBaseAbbr('CV (FIN-Core)')).toBe('CV')
   })
   it('normalises Sheet-2 lookup keys (spacing, section, alias)', () => {
-    expect(getDetailAbbr('CV (FIN-Core)')).toBe('CV(FIN-CORE)')
-    expect(getDetailAbbr('PF(FIN-Core)')).toBe('PF(FIN-CORE)')   // missing space
+    expect(getDetailAbbr('IF (FIN-Core)')).toBe('IF(FIN-CORE)')
+    expect(getDetailAbbr('IF(FIN-Core)')).toBe('IF(FIN-CORE)')    // missing space
     expect(getDetailAbbr('DS-A (LSM-Core)')).toBe('DS(LSM-CORE)') // section stripped
     expect(getDetailAbbr('GT-B')).toBe('GT')
-    expect(getDetailAbbr('RTM')).toBe('RM')                       // alias
-    expect(getDetailAbbr('RTM-A')).toBe('RM')
+    // ABBR_ALIAS is empty for Term V — an un-aliased code passes through untouched.
+    expect(getDetailAbbr('MAJVCG-A')).toBe('MAJVCG')
   })
 })
 
@@ -342,19 +343,61 @@ describe('classifyColor / rgbToHex — cancellation/addition detection', () => {
 describe('parseCourseDetails — Sheet-2 enrichment lookup', () => {
   const sheet2 = [
     ['Abbreviation', 'Course Name', 'Credits', 'Faculty'],
-    ['CV (FIN-Core)', 'Corporate Valuation', '3', 'Prof. Abhilash S Nair'],
-    ['PF(FIN-Core)', 'Personal Finance', '3', 'Prof. Pankaj Kumar Baag'],
-    ['RM', 'Retail Management', '3', 'Prof. Someone'],
+    ['IF (FIN-Core)', 'International Finance (FIN-Core)', '3', 'Prof. Ekta Sikarwar'],
+    ['OSD(FIN-Core)', 'Organizational Structure & Design (FIN-Core)', '3', 'Prof. Shameem S'],
+    ['MOS', 'Marketing Of Services', '3', 'Prof. Joshy Joseph'],
     ['', '', '', ''],
   ]
   it('keys rows so schedule codes resolve via getDetailAbbr', () => {
     const map = parseCourseDetails(sheet2)
-    expect(map.get(getDetailAbbr('CV (FIN-Core)'))?.faculty).toBe('Prof. Abhilash S Nair')
-    expect(map.get(getDetailAbbr('PF (FIN-Core)'))?.faculty).toBe('Prof. Pankaj Kumar Baag')
-    expect(map.get(getDetailAbbr('RTM'))?.name).toBe('Retail Management') // RTM→RM alias
+    expect(map.get(getDetailAbbr('IF (FIN-Core)'))?.faculty).toBe('Prof. Ekta Sikarwar')
+    expect(map.get(getDetailAbbr('OSD (FIN-Core)'))?.faculty).toBe('Prof. Shameem S')
+    expect(map.get(getDetailAbbr('MOS'))?.name).toBe('Marketing Of Services')
   })
   it('ignores blank rows', () => {
     expect(parseCourseDetails(sheet2).size).toBe(3)
+  })
+})
+
+// The Term V Course Details tab lists a split course once PER SECTION ("GT-A", "GT-B"), where
+// Term IV listed it once ("GT") with the sections in their own column. detailKey has to resolve
+// both shapes or every -A/-B course loses its name, faculty and credits.
+describe('parseCourseDetails — division layout, per-section abbr rows (Term V shape)', () => {
+  const sheet2 = [
+    ['PGP 29/FIN 06/LSM 06 Term V'],
+    ['Academic Year-2026-27'],
+    ['Sl.No', 'Programme', 'Course', 'Section', 'Abbr.', 'Credit', 'Faculty'],
+    ['1.0', 'PGP 29', 'Game Theory', 'A', 'GT-A', '3.0', 'Prof. Anirban Ghatak'],
+    ['2.0', '', 'Game Theory', 'B', 'GT-B', '3.0', 'Prof. Anirban Ghatak'],
+    ['3.0', '', 'Consumer Behaviour', 'A', 'CB', '3.0', 'Prof. Aishwarya Ramasundaram'],
+    ['1.0', 'PGPLSM06', 'Experiential Marketing', 'A', 'EM (LSM)', '2.0', 'Prof. Deepak S Kumar'],
+  ]
+  const map = parseCourseDetails(sheet2, 'division')
+  const lookup = (code: string) => {
+    const { primary, fallback } = detailKey(code, 'PGP-29 D1', 'division')
+    return map.get(primary) ?? map.get(fallback)
+  }
+
+  it('finds the header row below the two title rows', () => {
+    expect(map.size).toBe(4)
+  })
+  it('resolves a per-section code to its own row', () => {
+    expect(lookup('GT-A')?.name).toBe('Game Theory')
+    expect(lookup('GT-B')?.faculty).toBe('Prof. Anirban Ghatak')
+    expect(lookup('GT-A')?.credits).toBe('3.0')
+  })
+  it('resolves an unsplit code and a programme-qualified code', () => {
+    expect(lookup('CB')?.name).toBe('Consumer Behaviour')
+    expect(lookup('EM (LSM)')?.faculty).toBe('Prof. Deepak S Kumar')
+  })
+  it('falls back to the section-stripped key when a tab lists a course once (Term IV shape)', () => {
+    const t4 = parseCourseDetails([
+      ['Abbr', 'Course', 'Credit', 'Faculty'],
+      ['GT', 'Game Theory', '3', 'Prof. Anirban Ghatak'],
+    ], 'division')
+    const { primary, fallback } = detailKey('GT-A', 'PGP-29 D1', 'division')
+    expect(t4.get(primary)).toBeUndefined()
+    expect(t4.get(fallback)?.name).toBe('Game Theory')
   })
 })
 
@@ -409,7 +452,8 @@ describe('YMHC venue special-case (one-off admin data fix)', () => {
 describe('AREA_MAP sanity', () => {
   it('covers the headline electives', () => {
     expect(AREA_MAP['GT']).toBe('ECO')
-    expect(AREA_MAP['SBRA']).toBe('SM')
-    expect(AREA_MAP['RTM']).toBe('MM')
+    expect(AREA_MAP['CSL']).toBe('SM')
+    expect(AREA_MAP['IMC']).toBe('MM')
+    expect(AREA_MAP['AIB']).toBe('IS')
   })
 })

@@ -21,7 +21,7 @@ const PREF_LABELS: { key: PrefKey; label: string }[] = [
   { key: 'notify_daily_summary', label: 'Daily morning summary' },
 ]
 
-const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
+const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '1QKqsiD6vPSXNLZOAH1p9sBA_LX8wvDyr8pC7oAw0hro'
 
 export default function SettingsPage() {
   const { userId, shareCode, user } = useSession()

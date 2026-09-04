@@ -13,7 +13,7 @@ import { CANONICAL_SLOTS, SLOT_END } from '@/lib/free-time'
 import { EXAM_NOTE, isEndTermExam, isMyExam } from '@/lib/exams'
 import type { Course } from '@/lib/types'
 
-const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '13-v2m0g3dr3UVo09i3qHLsMqZRyy_6zXf21AtDUtSOQ'
+const SHEET_ID = process.env.NEXT_PUBLIC_SHEET_ID ?? '1QKqsiD6vPSXNLZOAH1p9sBA_LX8wvDyr8pC7oAw0hro'
 
 // Avoids threading attendance/notes/open through every nested grid component.
 const DetailCtx = createContext<{

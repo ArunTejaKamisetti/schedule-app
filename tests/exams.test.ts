@@ -9,31 +9,21 @@ const SLOTS = ['Morning', 'Afternoon', 'Evening']
 
 // A sheet-derived row, for the "not an end-term paper" cases.
 const dbRow = (over: Partial<Course> = {}): Course => ({
-  id: 'db-1', course_code: 'CG', course_name: 'Corporate Governance', instructor: null,
-  day_of_week: 'TUE', session_date: '2026-08-20', start_time: '09:15', end_time: '10:30',
-  room: 'D4', credits: '3', area: 'SM', sheet_tab: 'PGP-29 D4', sheet_row_index: 6,
+  id: 'db-1', course_code: 'CSL', course_name: 'Corporate Strategic Leadership', instructor: null,
+  day_of_week: 'MON', session_date: '2026-09-07', start_time: '09:15', end_time: '10:30',
+  room: 'D1', credits: '3', area: 'SM', sheet_tab: 'PGP-29 D1', sheet_row_index: 6,
   year: 2, source_key: 'y2', is_cancelled: false, is_common: false, event_kind: 'class',
   change_kind: null, change_note: null, last_changed_at: null, last_synced_at: '', ...over,
 })
 
-describe('EXAM_SCHEDULE data (transcribed from the Term IV end-term PDF)', () => {
-  it('runs only on the eight published dates, 22–31 Aug 2026', () => {
-    // 25 and 26 Aug carry no paper on the PDF.
-    const dates = [...new Set(EXAM_SCHEDULE.map((e) => e.date))].sort()
-    expect(dates).toEqual([
-      '2026-08-22', '2026-08-23', '2026-08-24', '2026-08-27',
-      '2026-08-28', '2026-08-29', '2026-08-30', '2026-08-31',
-    ])
-  })
-
-  it('has the paper count the PDF prints for each day', () => {
-    const byDate: Record<string, number> = {}
-    for (const e of EXAM_SCHEDULE) byDate[e.date] = (byDate[e.date] ?? 0) + 1
-    expect(byDate).toEqual({
-      '2026-08-22': 9, '2026-08-23': 5, '2026-08-24': 2, '2026-08-27': 6,
-      '2026-08-28': 6, '2026-08-29': 9, '2026-08-30': 7, '2026-08-31': 4,
-    })
-    expect(EXAM_SCHEDULE.length).toBe(48)
+// EXAM_SCHEDULE is EMPTY between terms: Term IV's papers were removed when the term closed and
+// the Programmes Office has not published Term V's list yet. These tests therefore assert the
+// module's INVARIANTS rather than a fixed paper list, so they keep their teeth the moment the
+// Term V papers are transcribed into lib/exams.ts.
+describe('EXAM_SCHEDULE data', () => {
+  it('is empty between terms — the app falls back to the sheet\'s own exam banner', () => {
+    expect(EXAM_SCHEDULE).toEqual([])
+    expect(examEvents()).toEqual([])
   })
 
   it('gives every paper a known slot, a title and at least one course code', () => {
@@ -43,6 +33,10 @@ describe('EXAM_SCHEDULE data (transcribed from the Term IV end-term PDF)', () =>
       expect(e.codes.length, e.title).toBeGreaterThan(0)
       for (const c of e.codes) expect(c.trim().length, `${e.title} → "${c}"`).toBeGreaterThan(0)
     }
+  })
+
+  it('uses ISO dates', () => {
+    for (const e of EXAM_SCHEDULE) expect(e.date, e.title).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   it('never lists the same course code under two papers', () => {
@@ -94,11 +88,10 @@ describe('examEvents()', () => {
   })
 
   it('derives the weekday from the date', () => {
-    const byDate = new Map(events.map((c) => [c.session_date, c.day_of_week]))
-    expect(byDate.get('2026-08-22')).toBe('SAT')
-    expect(byDate.get('2026-08-24')).toBe('MON')
-    expect(byDate.get('2026-08-27')).toBe('THU')
-    expect(byDate.get('2026-08-31')).toBe('MON')
+    const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+    for (const c of events) {
+      expect(c.day_of_week, c.session_date!).toBe(WEEKDAYS[new Date(`${c.session_date}T00:00:00Z`).getUTCDay()])
+    }
   })
 
   it('returns the same objects each call (stable identity for SWR-derived arrays)', () => {
@@ -107,16 +100,19 @@ describe('examEvents()', () => {
 })
 
 describe('examEventsBetween()', () => {
-  it('is inclusive of both ends', () => {
-    const week = examEventsBetween('2026-08-22', '2026-08-24')
-    expect(new Set(week.map((c) => c.session_date))).toEqual(
-      new Set(['2026-08-22', '2026-08-23', '2026-08-24'])
-    )
-    expect(week.length).toBe(9 + 5 + 2)
+  it('returns exactly the papers inside an inclusive window', () => {
+    const dates = [...new Set(EXAM_SCHEDULE.map((e) => e.date))].sort()
+    if (dates.length === 0) {
+      expect(examEventsBetween('2026-09-01', '2026-12-31')).toEqual([])
+      return
+    }
+    const [first, last] = [dates[0], dates[dates.length - 1]]
+    expect(examEventsBetween(first, last).length).toBe(EXAM_SCHEDULE.length)
+    expect(examEventsBetween(first, first).every((c) => c.session_date === first)).toBe(true)
   })
 
-  it('is empty for a window before the exams', () => {
-    expect(examEventsBetween('2026-08-09', '2026-08-15')).toEqual([])
+  it('is empty for a window with no papers in it', () => {
+    expect(examEventsBetween('1999-01-01', '1999-01-07')).toEqual([])
   })
 })
 
@@ -128,6 +124,10 @@ describe('withEndTermExams()', () => {
     expect(withEndTermExams(rows, null)).toBe(rows)
   })
 
+  it('returns the DB rows untouched while no papers are published', () => {
+    expect(withEndTermExams(rows, 2)).toBe(rows)
+  })
+
   it('appends every paper for the 2nd year', () => {
     const merged = withEndTermExams(rows, 2)
     expect(merged.length).toBe(rows.length + EXAM_SCHEDULE.length)
@@ -135,13 +135,15 @@ describe('withEndTermExams()', () => {
   })
 
   it('appends only the papers inside a fetched window', () => {
-    const merged = withEndTermExams(rows, 2, '2026-08-31', '2026-08-31')
-    expect(merged.length).toBe(rows.length + 4)
-    expect(merged.slice(1).every((c) => c.session_date === '2026-08-31')).toBe(true)
+    const day = EXAM_SCHEDULE[0]?.date ?? '2026-12-01'
+    const expected = EXAM_SCHEDULE.filter((e) => e.date === day).length
+    const merged = withEndTermExams(rows, 2, day, day)
+    expect(merged.length).toBe(rows.length + expected)
+    expect(merged.slice(1).every((c) => c.session_date === day)).toBe(true)
   })
 
   it('keeps the sheet\'s own END TERM EXAMINATION banner (detail is additive)', () => {
-    const banner = dbRow({ id: 'db-2', course_code: 'END_TERM_EXAMINATION', is_common: true, event_kind: 'exam', session_date: '2026-08-22' })
+    const banner = dbRow({ id: 'db-2', course_code: 'END_TERM_EXAMINATION', is_common: true, event_kind: 'exam', session_date: '2026-12-14' })
     expect(withEndTermExams([banner], 2)).toContain(banner)
   })
 })
@@ -154,29 +156,25 @@ describe('isEndTermExam() / hasExamsOn()', () => {
   })
 
   it('knows which dates have papers', () => {
-    expect(hasExamsOn('2026-08-22')).toBe(true)
-    expect(hasExamsOn('2026-08-25')).toBe(false) // gap day on the PDF
-    expect(hasExamsOn('2026-09-01')).toBe(false)
+    for (const e of EXAM_SCHEDULE) expect(hasExamsOn(e.date), e.date).toBe(true)
+    expect(hasExamsOn('1999-01-01')).toBe(false)
   })
 })
 
 describe('isMyExam()', () => {
   const events = examEvents()
-  const paper = (title: string) => events.find((c) => c.course_name === title)!
 
   it('matches a paper the student is enrolled in, by any of its codes', () => {
-    expect(isMyExam(paper('Negotiation & Conflict Management'), new Set(['NCM-B']))).toBe(true)
-    expect(isMyExam(paper('Game Theory'), new Set(['GT-C', 'CG']))).toBe(true)
-    // The PGP and FIN sections sit the same paper.
-    expect(isMyExam(paper('Fixed Income Securities (PGP & FIN)'), new Set(['FIS (FIN-Core)']))).toBe(true)
-  })
-
-  it('does not match papers the student has not picked', () => {
-    expect(isMyExam(paper('Game Theory'), new Set(['CG', 'SCM']))).toBe(false)
-    expect(isMyExam(paper('Game Theory'), new Set())).toBe(false)
+    for (const [i, c] of events.entries()) {
+      for (const code of EXAM_SCHEDULE[i].codes) {
+        expect(isMyExam(c, new Set([code])), `${c.course_name} → ${code}`).toBe(true)
+      }
+      expect(isMyExam(c, new Set(['NOT-A-REAL-CODE'])), c.course_name!).toBe(false)
+      expect(isMyExam(c, new Set()), c.course_name!).toBe(false)
+    }
   })
 
   it('is false for anything that is not a static exam row', () => {
-    expect(isMyExam(dbRow(), new Set(['CG']))).toBe(false)
+    expect(isMyExam(dbRow(), new Set(['CSL']))).toBe(false)
   })
 })

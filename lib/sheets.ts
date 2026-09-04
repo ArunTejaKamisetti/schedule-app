@@ -3,32 +3,35 @@ import type { CellFormat, RawSheetData, SheetMerge } from './types'
 import type { SheetSource } from './sheets-config'
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!
-const SCHEDULE_TAB = 'Term IV Schedule'
+const SCHEDULE_TAB = 'Term V Schedule'
 const DETAILS_TAB = 'Course Details'
 
-// ─── Area map (from List of Electives PDF) ────────────────────────────────────
+// ─── Area map (Term V catalog — PGP 29 / FIN 06 / LSM 06, AY 2026-27) ─────────
+// Keyed by BASE abbreviation (the -A/-B section suffix is stripped by getBaseAbbr).
+// The Course Details tab carries no area column, so these are assigned by course subject.
+// FIN/LSM core & elective courses are NOT listed here — getArea routes them by their
+// "(FIN-Core)"/"(LSM-Core)"/"(FIN)"/"(LSM)" qualifier instead.
+//
+// NB: the key `SM` is the COURSE Strategic Marketing (→ MM area), not the SM area.
 export const AREA_MAP: Record<string, string> = {
   // ECO
-  GT: 'ECO', FC: 'ECO', EMPC: 'ECO',
+  GT: 'ECO',
   // OBHR
-  JOY: 'OBHR', LLIR: 'OBHR', NCM: 'OBHR', TTT: 'OBHR',
-  LIDA: 'OBHR', TM: 'OBHR', MIO: 'OBHR', GWO: 'OBHR', MBGM: 'OBHR',
+  MEIW: 'OBHR', NWE: 'OBHR',
   // FAC
-  IAPM: 'FAC', CBM: 'FAC', FD: 'FAC', FIS: 'FAC', CV: 'FAC', POF: 'FAC',
+  ER: 'FAC', SCF: 'FAC', IF: 'FAC', FRA: 'FAC', MACR: 'FAC', FMA: 'FAC',
   // HLAM
-  GC: 'HLAM', WIS: 'HLAM', ILM: 'HLAM', VC: 'HLAM',
-  IPR: 'HLAM', LME: 'HLAM', YMHC: 'HLAM', DPI: 'HLAM',
+  WTKY: 'HLAM', UPP: 'HLAM', FS: 'HLAM', MMC: 'HLAM', MME: 'HLAM',
+  // Term IV leftover: the admin types the venue into the YMHC cell, handled by isYmhcVenue.
+  YMHC: 'HLAM',
   // IS
-  AIB: 'IS', DBT: 'IS', CS: 'IS', DA: 'IS', ECOM: 'IS',
-  MITPS: 'IS', SOMA: 'IS', GDBD: 'IS', 'DW3.0': 'IS', EITRM: 'IS', MBGAI: 'IS',
+  DVT: 'IS', ECOM: 'IS', AIB: 'IS',
   // DSOM
-  HSCM: 'DSOM', DAR: 'DSOM', SOM: 'DSOM', SCM: 'DSOM', PM: 'DSOM',
+  SCM: 'DSOM', SA: 'DSOM', LS: 'DSOM', DAR: 'DSOM', PM: 'DSOM',
   // MM
-  CB: 'MM', CMO: 'MM', CA: 'MM', RTM: 'MM', MRBDM: 'MM',
-  MBM: 'MM', SDM: 'MM', MA: 'MM', DM: 'MM', MOB: 'MM', MAAS: 'MM',
+  IMC: 'MM', CB: 'MM', SDM: 'MM', MOS: 'MM', AMMR: 'MM', SM: 'MM',
   // SM
-  GBS: 'SM', CG: 'SM', SBRA: 'SM', POSS: 'SM',
-  CONSULTING: 'SM', IB: 'SM', EOS: 'SM',
+  BS: 'SM', MAJVCG: 'SM', CSL: 'SM', SI: 'SM', MFB: 'SM', SIAT: 'SM', SGC: 'SM',
 }
 
 export interface CourseDetail {
@@ -74,8 +77,9 @@ export function getBaseAbbr(code: string): string {
 
 // Schedule (Sheet 1) abbreviation → Course Details (Sheet 2) abbreviation, where the
 // two sheets disagree. We keep the Sheet-1 code for display but enrich from the Sheet-2 row.
-// e.g. "RTM" in the schedule == "RM" (Retail Management) in Course Details.
-export const ABBR_ALIAS: Record<string, string> = { RTM: 'RM' }
+// Empty for Term V — every schedule code has a matching Course Details row. Add an entry here
+// when a term's two tabs disagree (Term IV needed `RTM: 'RM'` for Retail Management).
+export const ABBR_ALIAS: Record<string, string> = {}
 
 // Normalise an abbreviation for cross-sheet matching: uppercase, collapse spaces,
 // and tighten brackets so "PF (FIN-Core)" and "PF(FIN-Core)" become the same key.
@@ -170,8 +174,11 @@ export function parseCourseDetails(rows: string[][], layout: 'division' | 'secti
 // `ABBR|SECTION` (with `ABBR` fallback for name/credit); for 2nd year it is getDetailAbbr.
 export function detailKey(code: string, sheetTab: string, layout: 'division' | 'section'): { primary: string; fallback: string } {
   if (layout === 'section') return { primary: `${normAbbr(code)}|${sheetTab}`, fallback: normAbbr(code) }
-  const k = getDetailAbbr(code)
-  return { primary: k, fallback: k }
+  // 2nd year: the Course Details tab keys a split course EITHER per section ("GT-A", "GT-B" —
+  // the Term V shape) OR once for the whole course ("GT", sections in their own column — the
+  // Term IV shape). Try the exact code first, then the section-stripped/aliased key, so both
+  // shapes enrich without a code change when the sheet is re-authored next term.
+  return { primary: normAbbr(code), fallback: getDetailAbbr(code) }
 }
 
 function getOAuth2Client() {
