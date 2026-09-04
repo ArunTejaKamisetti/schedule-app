@@ -128,3 +128,42 @@ describe('diffSheetData', () => {
     expect(d.changes.filter((c) => c.type === 'cancelled').map((c) => c.new?.sheet_tab)).toEqual(['PGP-29 D2'])
   })
 })
+
+// A new term replaces the sheet wholesale: same divisions and time slots, entirely new dates.
+// The diff must recognise that and hand back a clean baseline instead of thousands of
+// added/removed changes — see the rollover branch in lib/diff.ts.
+describe('diffSheetData — term rollover', () => {
+  const TERM_IV = ['Tuesday, 9 June, 2026', '09.15-10.30', 'GT-A', 'IAPM-A', '', '']
+  const TERM_V = ['Monday, 7 September, 2026', '09.15-10.30', 'CSL', 'AMMR', '', '']
+
+  it('treats a wholly new set of dates as a fresh baseline', () => {
+    const d = diffSheetData(snap(TERM_IV), snap(TERM_V))
+    expect(d.changes).toHaveLength(0)          // no notifications for a term change
+    expect(d.removed).toHaveLength(0)
+    expect(d.added.map((c) => c.course_code).sort()).toEqual(['AMMR', 'CSL'])
+    expect(d.upserts.map((c) => c.course_code).sort()).toEqual(['AMMR', 'CSL'])
+  })
+
+  it('tags nothing, so the sync writes no change highlights', () => {
+    const d = diffSheetData(snap(TERM_IV), snap(TERM_V))
+    expect(d.upserts.filter((c) => c.change_kind)).toHaveLength(0)
+  })
+
+  it('still diffs normally when even one date carries over', () => {
+    const overlap = buildSheet([TERM_IV, TERM_V], [plainRow(6), plainRow(6)])
+    const moved = buildSheet(
+      [TERM_IV, ['Monday, 7 September, 2026', '09.15-10.30', 'SGC', 'AMMR', '', '']],
+      [plainRow(6), plainRow(6)]
+    )
+    const d = diffSheetData(overlap, moved)
+    expect(d.changes.length).toBeGreaterThan(0)
+    expect(d.changes.some((c) => c.course_code === 'SGC')).toBe(true)
+  })
+
+  it('does not fire the shortcut when the previous snapshot is empty', () => {
+    const empty = buildSheet([], [])
+    const d = diffSheetData(empty, snap(TERM_V))
+    expect(d.changes.every((c) => c.type === 'added')).toBe(true)
+    expect(d.changes).toHaveLength(2)
+  })
+})

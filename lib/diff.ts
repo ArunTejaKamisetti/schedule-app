@@ -80,6 +80,19 @@ export function diffSheetData(previousSnapshot: RawSheetData | null, newData: Ra
   const oldSlots = new Map(oldAll.map((c) => [slotKey(c), c]))
   const newSlots = new Map(newAll.map((c) => [slotKey(c), c]))
 
+  // Term rollover — the new sheet covers an entirely different set of DATES than the previous
+  // snapshot, which only happens when the term itself was replaced. (Any within-term edit — a
+  // class moved, cancelled, re-roomed — keeps its date, so the date sets still overlap.)
+  // Falling through would report every session added and every old one removed (~2700 changes
+  // for one term): meaningless as change highlights, ~1400 per-row UPDATEs that overrun the
+  // sync's 60s budget, and nobody to notify anyway (replacing the term's rows cascades away
+  // every saved pick). Treat it as a fresh baseline, exactly like a first-ever sync.
+  const oldDates = new Set(oldAll.map((c) => c.session_date))
+  const rollover = oldAll.length > 0 && newAll.length > 0 && !newAll.some((c) => oldDates.has(c.session_date))
+  if (rollover) {
+    return { added: newAll, removed: [], changes: [], upserts: newAll }
+  }
+
   const changes: CourseChange[] = []
   const added: ParsedCourse[] = []
   const removed: ParsedCourse[] = []
